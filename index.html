@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>라이언멤버스 | 수업회차 조회</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #ECEBE6;
+    --surface: #FBFAF8;
+    --ink: #545454;
+    --ink-strong: #2E2E2E;
+    --accent: #BBCBCD;
+    --accent-deep: #7E9598;
+    --warn: #B15E52;
+    --ok: #6B8F71;
+    --line: #DBD9D2;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    font-family: 'Noto Sans KR', sans-serif;
+    color: var(--ink-strong);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 16px 60px;
+  }
+  .brand {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 28px;
+  }
+  .brand-mark {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 15px;
+    letter-spacing: 0.4em;
+    color: var(--accent-deep);
+    margin-bottom: 4px;
+  }
+  .brand-title {
+    font-size: 20px;
+    font-weight: 900;
+    letter-spacing: -0.02em;
+  }
+  .search-wrap {
+    width: 100%;
+    max-width: 420px;
+  }
+  .search-box {
+    display: flex;
+    background: var(--surface);
+    border: 1.5px solid var(--line);
+    border-radius: 14px;
+    padding: 4px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  }
+  .search-box input {
+    flex: 1;
+    border: none;
+    background: transparent;
+    padding: 14px 16px;
+    font-size: 16px;
+    font-family: 'Noto Sans KR', sans-serif;
+    color: var(--ink-strong);
+    outline: none;
+  }
+  .search-box input::placeholder { color: #B4B1A8; }
+  .search-box button {
+    border: none;
+    background: var(--ink-strong);
+    color: #fff;
+    padding: 0 22px;
+    border-radius: 10px;
+    font-family: 'Noto Sans KR', sans-serif;
+    font-weight: 700;
+    font-size: 15px;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .search-box button:active { opacity: 0.7; }
+
+  .phone-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--surface);
+    border: 1.5px solid var(--line);
+    border-radius: 14px;
+    padding: 4px 4px 4px 16px;
+    margin-top: 8px;
+  }
+  .phone-row span {
+    font-size: 13px;
+    color: var(--ink);
+    white-space: nowrap;
+  }
+  .phone-row input {
+    flex: 1;
+    border: none;
+    background: transparent;
+    padding: 12px 8px;
+    font-size: 16px;
+    font-family: 'Noto Sans KR', sans-serif;
+    color: var(--ink-strong);
+    outline: none;
+    letter-spacing: 0.05em;
+  }
+  .phone-row input::placeholder { color: #B4B1A8; }
+  .status {
+    max-width: 420px;
+    width: 100%;
+    text-align: center;
+    font-size: 13px;
+    color: var(--ink);
+    margin-top: 10px;
+    min-height: 18px;
+  }
+
+  .results { width: 100%; max-width: 420px; margin-top: 22px; display: flex; flex-direction: column; gap: 14px; }
+
+  .card {
+    background: var(--surface);
+    border: 1.5px solid var(--line);
+    border-radius: 18px;
+    padding: 22px 22px 20px;
+    animation: rise 0.35s ease;
+  }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+  .card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 14px;
+  }
+  .card-name { font-size: 19px; font-weight: 900; }
+  .card-date { font-size: 12px; color: var(--ink); }
+
+  .hero-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .hero-num {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 64px;
+    line-height: 0.85;
+    letter-spacing: 0.01em;
+  }
+  .hero-label {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--ink);
+    padding-bottom: 8px;
+  }
+  .hero-num.warn { color: var(--warn); }
+  .hero-num.ok { color: var(--ink-strong); }
+
+  .punch-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 14px;
+  }
+  .dot {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    border: 1.5px solid var(--accent-deep);
+    background: transparent;
+  }
+  .dot.used { background: var(--accent-deep); }
+
+  .meta-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12.5px;
+    color: var(--ink);
+    border-top: 1px solid var(--line);
+    padding-top: 12px;
+  }
+  .meta-row b { color: var(--ink-strong); font-weight: 700; }
+
+  .badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 999px;
+    margin-top: 8px;
+  }
+  .badge.warn { background: #F3E4E1; color: var(--warn); }
+  .badge.ok { background: #E4EAE5; color: var(--ok); }
+
+  .empty, .config-note {
+    max-width: 420px;
+    text-align: center;
+    color: var(--ink);
+    font-size: 13.5px;
+    line-height: 1.7;
+    margin-top: 30px;
+    padding: 0 12px;
+  }
+  .config-note code {
+    background: #E4E2DB;
+    padding: 1px 6px;
+    border-radius: 5px;
+    font-size: 12px;
+  }
+
+  footer {
+    margin-top: auto;
+    padding-top: 44px;
+    font-size: 11px;
+    color: #A6A39A;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+  <div class="brand">
+    <div class="brand-mark">RYAN MEMBERS</div>
+    <div class="brand-title">수업회차 조회</div>
+  </div>
+
+  <div class="search-wrap">
+    <div class="search-box">
+      <input id="nameInput" type="text" placeholder="학생 이름을 입력하세요" autocomplete="off" />
+      <button id="searchBtn">조회</button>
+    </div>
+    <div class="phone-row">
+      <span>전화번호 뒷4자리</span>
+      <input id="phoneInput" type="tel" inputmode="numeric" maxlength="4" placeholder="선택 · 동명이인 정확 조회시" autocomplete="off" />
+    </div>
+    <div class="status" id="statusText"></div>
+  </div>
+
+  <div class="results" id="results"></div>
+
+  <footer>ⓒ Ryan Members · 데이터는 매일 갱신됩니다</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script>
+  // ── 설정: Ryan이 '공개조회' 탭을 웹에 게시한 후, 아래 CSV_URL만 교체하면 바로 연결됩니다.
+  // 파일 → 공유 → 웹에 게시 → 해당 탭 선택 → 쉼표로 구분된 값(.csv) → 게시된 링크를 여기에 붙여넣기
+  // 필요한 열(순서 무관, 헤더명은 정확히 일치해야 함): 학생명 | 전화번호 | 등록횟수 | 잔여 | 최근등록일
+  // 전화번호는 화면에 절대 그대로 노출되지 않고, 뒷4자리 대조용으로만 쓰입니다.
+  const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTDHzGU8F-Mg7bl0Vs0Sk_8NABqRg6ZGJEidR-icifeg2DOBILIYc9lHVSR1e2npoSuIpFO57yRh2yC/pub?gid=550578481&single=true&output=csv";
+
+  // 데모용 샘플 데이터 (CSV_URL 미설정 시 화면 확인용)
+  // 전화번호는 원본을 그대로 보관하되, 화면에는 절대 다시 표시하지 않고 뒷4자리 대조 필터로만 사용합니다.
+  const DEMO_DATA = [
+    { 학생명: "정원", 전화번호: "010-1234-5678", 등록횟수: "8", 잔여: "7", 최근등록일: "2026-07-14" },
+    { 학생명: "양혜미", 전화번호: "010-2222-9981", 등록횟수: "8", 잔여: "-2", 최근등록일: "2026-06-11" },
+    { 학생명: "정성헌", 전화번호: "010-5555-3312", 등록횟수: "8", 잔여: "0", 최근등록일: "2026-06-11" },
+    { 학생명: "박달재", 전화번호: "010-7777-6640", 등록횟수: "24", 잔여: "13", 최근등록일: "2026-06-18" },
+    { 학생명: "박달재", 전화번호: "010-9090-1122", 등록횟수: "8", 잔여: "3", 최근등록일: "2026-05-02" }, // 동명이인 예시
+  ];
+
+  const input = document.getElementById('nameInput');
+  const phoneInput = document.getElementById('phoneInput');
+  const btn = document.getElementById('searchBtn');
+  const resultsEl = document.getElementById('results');
+  const statusEl = document.getElementById('statusText');
+
+  phoneInput.addEventListener('input', () => {
+    phoneInput.value = phoneInput.value.replace(/\D/g, '').slice(0, 4);
+  });
+
+  let cache = null;
+
+  async function loadData() {
+    if (cache) return cache;
+    if (!CSV_URL) {
+      statusEl.textContent = "⚠ 데모 데이터로 미리보기 중 (실데이터 미연결)";
+      cache = DEMO_DATA;
+      return cache;
+    }
+    statusEl.textContent = "불러오는 중...";
+    try {
+      const res = await fetch(CSV_URL);
+      if (!res.ok) throw new Error("fetch failed");
+      const text = await res.text();
+      const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
+      cache = parsed.data;
+      statusEl.textContent = "";
+      return cache;
+    } catch (e) {
+      statusEl.textContent = "데이터를 불러오지 못했어요. 잠시 후 다시 시도해주세요.";
+      return [];
+    }
+  }
+
+  function renderEmpty(msg) {
+    resultsEl.innerHTML = `<div class="empty">${msg}</div>`;
+  }
+
+  function renderResults(list) {
+    resultsEl.innerHTML = "";
+    if (list.length === 0) {
+      renderEmpty("일치하는 학생을 찾을 수 없어요.<br>이름을 다시 확인해주세요.");
+      return;
+    }
+    list.forEach(row => {
+      const total = parseInt(row['등록횟수']) || 0;
+      const remain = parseInt(row['잔여']);
+      const isWarn = !isNaN(remain) && remain <= 2;
+      const usedCount = !isNaN(remain) ? Math.min(total, Math.max(0, total - remain)) : 0;
+
+      const dotsMax = Math.min(total, 32) || 0;
+      let dots = '';
+      for (let i = 0; i < dotsMax; i++) {
+        dots += `<span class="dot ${i < usedCount ? 'used' : ''}"></span>`;
+      }
+
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `
+        <div class="card-top">
+          <div class="card-name">${row['학생명'] || '-'}</div>
+          <div class="card-date">최근등록 ${row['최근등록일'] || '-'}</div>
+        </div>
+        <div class="hero-row">
+          <div class="hero-num ${isWarn ? 'warn' : 'ok'}">${isNaN(remain) ? '-' : remain}</div>
+          <div class="hero-label">회 남음</div>
+        </div>
+        <div class="punch-row">${dots}</div>
+        <div class="meta-row">
+          <span>등록 <b>${total || '-'}회</b></span>
+          <span>${isWarn ? '<span class="badge warn">재등록 안내 대상</span>' : '<span class="badge ok">정상 수강중</span>'}</span>
+        </div>
+      `;
+      resultsEl.appendChild(card);
+    });
+  }
+
+  async function doSearch() {
+    const q = input.value.trim();
+    const phoneQ = phoneInput.value.trim();
+    if (!q) { renderEmpty("이름을 입력하고 조회를 눌러주세요."); return; }
+
+    const data = await loadData();
+    let matches = data.filter(r => (r['학생명'] || '').includes(q));
+
+    if (phoneQ.length === 4) {
+      const exact = matches.filter(r => (r['전화번호'] || '').replace(/\D/g, '').slice(-4) === phoneQ);
+      if (exact.length === 0) {
+        renderEmpty("이름과 전화번호 뒷4자리가 일치하는 학생을 찾을 수 없어요.<br>입력한 정보를 다시 확인해주세요.");
+        return;
+      }
+      matches = exact;
+    } else if (matches.length > 1) {
+      statusEl.textContent = `동명이인 ${matches.length}명이 검색됐어요. 정확한 조회를 원하시면 전화번호 뒷4자리도 입력해주세요.`;
+    } else {
+      statusEl.textContent = "";
+    }
+
+    renderResults(matches);
+  }
+
+  btn.addEventListener('click', doSearch);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+  phoneInput.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+
+  // 최초 안내
+  renderEmpty("학생 이름을 입력하면 잔여 수업회차를 바로 확인할 수 있어요.");
+</script>
+</body>
+</html>
