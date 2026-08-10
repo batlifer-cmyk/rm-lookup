@@ -15,7 +15,6 @@ function doGet(e) {
   const name = rmAttendanceText_(p.name);
   const phone4 = rmAttendanceDigits_(p.phone4).slice(-4);
   if (!name) return rmAttendanceJson_({ok:false,error:'NAME_REQUIRED'});
-  if (phone4.length !== 4) return rmAttendanceJson_({ok:false,error:'PHONE4_REQUIRED'});
 
   try {
     const ss = SpreadsheetApp.openById(RM_ATTENDANCE_API.DATA_SPREADSHEET_ID);
@@ -49,6 +48,19 @@ function rmAttendanceVerifyStudent_(ss, name, phone4) {
 
   if (!hits.length) return {ok:false,error:'STUDENT_NOT_FOUND'};
 
+  // 이름이 유일하면 전화번호 없이 바로 허용한다.
+  if (hits.length === 1) {
+    const row = hits[0].getRow();
+    if (phone4) {
+      const storedPhone4 = rmAttendanceDigits_(sheet.getRange(row, 5).getDisplayValue()).slice(-4);
+      if (storedPhone4 && storedPhone4 !== phone4) return {ok:false,error:'PHONE_MISMATCH'};
+    }
+    return {ok:true,name:rmAttendanceText_(sheet.getRange(row, 1).getDisplayValue())};
+  }
+
+  // 동명이인일 때만 전화번호 뒷4자리를 요구한다.
+  if (phone4.length !== 4) return rmAttendanceDuplicate_();
+
   const exact = [];
   for (let i = 0; i < hits.length; i += 1) {
     const row = hits[i].getRow();
@@ -59,6 +71,10 @@ function rmAttendanceVerifyStudent_(ss, name, phone4) {
   if (!exact.length) return {ok:false,error:'PHONE_MISMATCH'};
   if (exact.length > 1) return {ok:false,error:'IDENTITY_AMBIGUOUS'};
   return {ok:true,name:rmAttendanceText_(sheet.getRange(exact[0], 1).getDisplayValue())};
+}
+
+function rmAttendanceDuplicate_() {
+  return {ok:false,error:'PHONE4_REQUIRED',reason:'DUPLICATE_NAME'};
 }
 
 function rmAttendanceGetRows_(ss, studentName) {
@@ -73,7 +89,6 @@ function rmAttendanceGetRows_(ss, studentName) {
   if (!sheet) throw new Error('SOURCE_SHEET_MISSING');
   if (sheet.getLastRow() < 2) return [];
 
-  // Search only the Student column first, then read only matched rows.
   const hits = sheet.getRange(2, 6, sheet.getLastRow() - 1, 1)
     .createTextFinder(studentName)
     .matchEntireCell(true)
