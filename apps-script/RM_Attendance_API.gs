@@ -11,26 +11,48 @@ function doGet(e) {
   const started = Date.now();
   const p = (e && e.parameter) || {};
   const action = String(p.action || 'attendance').trim();
+  const name = rmAttendanceText_(p.name);
+  const phone4 = rmAttendanceDigits_(p.phone4).slice(-4);
 
   if (action === 'health') {
     return rmAttendanceJson_({ok:true,service:'rm-attendance',elapsedMs:Date.now() - started});
   }
-  if (action !== 'attendance') {
-    return rmAttendanceJson_({ok:false,error:'UNKNOWN_ACTION',elapsedMs:Date.now() - started});
-  }
-
-  const name = rmAttendanceText_(p.name);
-  const phone4 = rmAttendanceDigits_(p.phone4).slice(-4);
-  if (!name) {
-    return rmAttendanceJson_({ok:false,error:'NAME_REQUIRED',elapsedMs:Date.now() - started});
-  }
 
   try {
     const ss = SpreadsheetApp.openById(RM_ATTENDANCE_API.DATA_SPREADSHEET_ID);
+
+    if (action === 'open') {
+      return rmAttendanceJson_({ok:true,spreadsheet:ss.getName(),elapsedMs:Date.now() - started});
+    }
+
+    if (!name) {
+      return rmAttendanceJson_({ok:false,error:'NAME_REQUIRED',elapsedMs:Date.now() - started});
+    }
+
     const verified = rmAttendanceVerifyStudent_(ss, name, phone4);
     if (!verified.ok) {
       verified.elapsedMs = Date.now() - started;
       return rmAttendanceJson_(verified);
+    }
+
+    if (action === 'verify') {
+      return rmAttendanceJson_({ok:true,studentName:verified.name,stage:'verify',elapsedMs:Date.now() - started});
+    }
+
+    if (action === 'findrows') {
+      const rowNumbers = rmAttendanceFindRowNumbers_(ss, verified.name);
+      return rmAttendanceJson_({
+        ok:true,
+        studentName:verified.name,
+        stage:'findrows',
+        count:rowNumbers.length,
+        sampleRows:rowNumbers.slice(0,10),
+        elapsedMs:Date.now() - started
+      });
+    }
+
+    if (action !== 'attendance') {
+      return rmAttendanceJson_({ok:false,error:'UNKNOWN_ACTION',elapsedMs:Date.now() - started});
     }
 
     const rows = rmAttendanceGetRows_(ss, verified.name);
@@ -71,11 +93,12 @@ function rmAttendanceVerifyStudent_(ss, name, phone4) {
   const matches = [];
   for (let i = 0; i < hits.length; i += 1) {
     const row = hits[i].getRow();
-    const displayName = rmAttendanceText_(sheet.getRange(row, 1).getDisplayValue());
+    const pair = sheet.getRange(row, 1, 1, 5).getDisplayValues()[0];
+    const displayName = rmAttendanceText_(pair[0]);
     if (rmAttendanceNormalize_(displayName) !== target) continue;
     matches.push({
       name:displayName,
-      phone4:rmAttendanceDigits_(sheet.getRange(row, 5).getDisplayValue()).slice(-4)
+      phone4:rmAttendanceDigits_(pair[4]).slice(-4)
     });
   }
 
@@ -98,9 +121,29 @@ function rmAttendanceVerifyStudent_(ss, name, phone4) {
   return {ok:true,name:exact[0].name};
 }
 
+function rmAttendanceFindRowNumbers_(ss, studentName) {
+  const sheet = ss.getSheetByName(RM_ATTENDANCE_API.SOURCE_SHEET);
+  if (!sheet) throw new Error('SOURCE_SHEET_MISSING');
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+
+  const hits = sheet
+    .getRange(2, 6, lastRow - 1, 1)
+    .createTextFinder(studentName)
+    .matchEntireCell(true)
+    .matchCase(false)
+    .findAll();
+
+  return hits
+    .map(r => r.getRow())
+    .sort((a, b) => b - a)
+    .slice(0, RM_ATTENDANCE_API.MAX_ROWS);
+}
+
 function rmAttendanceGetRows_(ss, studentName) {
   const cache = CacheService.getScriptCache();
-  const cacheKey = 'att:v4:' + Utilities.base64EncodeWebSafe(studentName, Utilities.Charset.UTF_8);
+  const cacheKey = 'att:v5:' + Utilities.base64EncodeWebSafe(studentName, Utilities.Charset.UTF_8);
   const cached = cache.get(cacheKey);
   if (cached) {
     try { return JSON.parse(cached); } catch (e) {}
@@ -109,33 +152,14 @@ function rmAttendanceGetRows_(ss, studentName) {
   const sheet = ss.getSheetByName(RM_ATTENDANCE_API.SOURCE_SHEET);
   if (!sheet) throw new Error('SOURCE_SHEET_MISSING');
 
-  const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return [];
-
-  // 4만 행 전체를 getValues()로 읽지 않는다.
-  // F열에서 학생 이름이 있는 셀만 TextFinder로 찾는다.
   const target = rmAttendanceNormalize_(studentName);
-  const hits = sheet
-    .getRange(2, 6, lastRow - 1, 1)
-    .createTextFinder(studentName)
-    .matchEntireCell(true)
-    .matchCase(false)
-    .findAll();
-
-  if (!hits.length) return [];
-
-  // 최근 행부터 최대 MAX_ROWS개만 읽는다.
-  const rowNumbers = hits
-    .map(r => r.getRow())
-    .sort((a, b) => b - a)
-    .slice(0, RM_ATTENDANCE_API.MAX_ROWS);
+  const rowNumbers = rmAttendanceFindRowNumbers_(ss, studentName);
+  if (!rowNumbers.length) return [];
 
   const result = [];
-
   for (let i = 0; i < rowNumbers.length; i += 1) {
     const row = rowNumbers[i];
     const r = sheet.getRange(row, 1, 1, 16).getValues()[0];
-
     if (rmAttendanceNormalize_(r[5]) !== target) continue;
 
     const lessonDate = rmAttendanceDate_(r[1]);
@@ -198,10 +222,8 @@ function rmAttendanceDate_(value) {
   if (value instanceof Date && !isNaN(value.getTime())) {
     return Utilities.formatDate(value, RM_ATTENDANCE_API.TZ, 'yyyy-MM-dd');
   }
-
   const text = rmAttendanceText_(value);
   if (!text) return '';
-
   const parsed = new Date(text);
   if (isNaN(parsed.getTime())) return '';
   return Utilities.formatDate(parsed, RM_ATTENDANCE_API.TZ, 'yyyy-MM-dd');
