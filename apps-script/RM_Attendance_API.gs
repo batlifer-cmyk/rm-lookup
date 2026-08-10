@@ -1,7 +1,6 @@
 const RM_ATTENDANCE_API = Object.freeze({
-  MASTER_SPREADSHEET_ID: '16ZKz55oMD0wBUtv9-hMk_HrPfhxRAd9HQhtbY8981x0',
-  MASTER_SHEET: 'Master Time Data',
-  VERIFY_SPREADSHEET_ID: '1P42_8yxR0Tlys8g48Cq1h4SryRHzTlljE0A-bvngwnE',
+  DATA_SPREADSHEET_ID: '1P42_8yxR0Tlys8g48Cq1h4SryRHzTlljE0A-bvngwnE',
+  SOURCE_SHEET: '_SRC_Master_Count_V2',
   VERIFY_SHEET: '공개조회가능 정보모음',
   TZ: 'Asia/Seoul',
   CACHE_SECONDS: 120,
@@ -19,10 +18,11 @@ function doGet(e) {
   if (phone4.length !== 4) return rmAttendanceJson_({ok:false,error:'PHONE4_REQUIRED'});
 
   try {
-    const verified = rmAttendanceVerifyStudent_(name, phone4);
+    const ss = SpreadsheetApp.openById(RM_ATTENDANCE_API.DATA_SPREADSHEET_ID);
+    const verified = rmAttendanceVerifyStudent_(ss, name, phone4);
     if (!verified.ok) return rmAttendanceJson_(verified);
 
-    const rows = rmAttendanceGetRows_(verified.name);
+    const rows = rmAttendanceGetRows_(ss, verified.name);
     return rmAttendanceJson_({
       ok:true,
       studentName:verified.name,
@@ -36,8 +36,7 @@ function doGet(e) {
   }
 }
 
-function rmAttendanceVerifyStudent_(name, phone4) {
-  const ss = SpreadsheetApp.openById(RM_ATTENDANCE_API.VERIFY_SPREADSHEET_ID);
+function rmAttendanceVerifyStudent_(ss, name, phone4) {
   const sheet = ss.getSheetByName(RM_ATTENDANCE_API.VERIFY_SHEET);
   if (!sheet) return {ok:false,error:'VERIFY_SHEET_MISSING'};
 
@@ -54,7 +53,7 @@ function rmAttendanceVerifyStudent_(name, phone4) {
   return {ok:true,name:rmAttendanceText_(exact[0][0])};
 }
 
-function rmAttendanceGetRows_(studentName) {
+function rmAttendanceGetRows_(ss, studentName) {
   const cache = CacheService.getScriptCache();
   const cacheKey = 'att:' + Utilities.base64EncodeWebSafe(studentName, Utilities.Charset.UTF_8);
   const cached = cache.get(cacheKey);
@@ -62,17 +61,16 @@ function rmAttendanceGetRows_(studentName) {
     try { return JSON.parse(cached); } catch (e) {}
   }
 
-  const ss = SpreadsheetApp.openById(RM_ATTENDANCE_API.MASTER_SPREADSHEET_ID);
-  const sheet = ss.getSheetByName(RM_ATTENDANCE_API.MASTER_SHEET);
-  if (!sheet) throw new Error('MASTER_SHEET_MISSING');
+  const sheet = ss.getSheetByName(RM_ATTENDANCE_API.SOURCE_SHEET);
+  if (!sheet) throw new Error('SOURCE_SHEET_MISSING');
 
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
 
-  // Master Time Data columns used only:
-  // A Teacher, B Date, F Student, J Class type, G Hours, K Note.
-  // K is read only to derive a safe counter token; raw note is never returned.
-  const values = sheet.getRange(2, 1, lastRow - 1, 11).getValues();
+  // Normalized V2 source only. No free-form Master Time Data note is returned.
+  // A Teacher, B Date, F Student, J Class type, L chargeUnits,
+  // M counterCompleted, N counterPackage, P rowSortKey.
+  const values = sheet.getRange(2, 1, lastRow - 1, 16).getValues();
   const target = rmAttendanceNormalize_(studentName);
   const result = [];
 
@@ -83,45 +81,49 @@ function rmAttendanceGetRows_(studentName) {
     const lessonDate = rmAttendanceDate_(r[1]);
     if (!lessonDate) continue;
 
-    const chargeUnits = rmAttendanceChargeUnits_(r[6], r[10]);
-    const counter = rmAttendanceCounter_(r[10]);
+    const chargeUnits = rmAttendanceNumber_(r[11]);
+    const completed = rmAttendanceNumberOrNull_(r[12]);
+    const pkg = rmAttendanceNumberOrNull_(r[13]);
+    const counter = completed === null ? '' : (pkg === null ? rmAttendanceFmt_(completed) + '/' : rmAttendanceFmt_(completed) + '(' + rmAttendanceFmt_(pkg) + ')');
+
     result.push({
       lessonDate:lessonDate,
       teacher:rmAttendanceText_(r[0]),
       classType:rmAttendanceText_(r[9]),
       chargeUnits:chargeUnits,
       counter:counter,
-      status:chargeUnits > 0 ? '차감' : '미차감'
+      status:chargeUnits > 0 ? '차감' : '미차감',
+      sortKey:rmAttendanceNumber_(r[15])
     });
   }
 
-  result.sort((a,b) => b.lessonDate.localeCompare(a.lessonDate));
-  const safe = result.slice(0, RM_ATTENDANCE_API.MAX_ROWS);
+  result.sort((a,b) => (b.sortKey - a.sortKey) || b.lessonDate.localeCompare(a.lessonDate));
+  const safe = result.slice(0, RM_ATTENDANCE_API.MAX_ROWS).map(r => ({
+    lessonDate:r.lessonDate,
+    teacher:r.teacher,
+    classType:r.classType,
+    chargeUnits:r.chargeUnits,
+    counter:r.counter,
+    status:r.status
+  }));
+
   try { cache.put(cacheKey, JSON.stringify(safe), RM_ATTENDANCE_API.CACHE_SECONDS); } catch (e) {}
   return safe;
 }
 
-function rmAttendanceChargeUnits_(hours, note) {
-  const h = rmAttendanceText_(hours).toLowerCase();
-  if (!h || h === 'n') return 0;
-  if (h === 's1') return 0.5;
-  const n = Number(h);
-  if (Number.isFinite(n) && n >= 0) return n;
-
-  // If Hours is malformed, do not infer a positive charge from free-form notes.
-  return 0;
+function rmAttendanceNumber_(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
 }
 
-function rmAttendanceCounter_(note) {
-  const text = rmAttendanceText_(note);
-  if (!text) return '';
+function rmAttendanceNumberOrNull_(value) {
+  if (value === '' || value === null || value === undefined) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
 
-  // Safe structured counter only. Examples: 8(8), 27, 28(32), 23.5(25), 7.5/
-  const paren = text.match(/(?:^|\s|,)(\d+(?:\.\d+)?)\s*\(\s*(\d+(?:\.\d+)?)\s*\)/);
-  if (paren) return paren[1] + '(' + paren[2] + ')';
-  const slash = text.match(/(?:^|\s|,)(\d+(?:\.\d+)?)\s*\//);
-  if (slash) return slash[1] + '/';
-  return '';
+function rmAttendanceFmt_(value) {
+  return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(2)));
 }
 
 function rmAttendanceDate_(value) {
