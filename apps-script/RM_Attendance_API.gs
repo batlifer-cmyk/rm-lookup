@@ -4,10 +4,12 @@ const RM_ATTENDANCE_API = Object.freeze({
   VERIFY_SHEET: '공개조회가능 정보모음',
   TZ: 'Asia/Seoul',
   CACHE_SECONDS: 120,
-  MAX_ROWS: 300
+  MAX_ROWS: 300,
+  BATCH_SIZE: 70
 });
 
 function doGet(e) {
+  const started = Date.now();
   const p = (e && e.parameter) || {};
   const action = String(p.action || 'attendance').trim();
   if (action !== 'attendance') return rmAttendanceJson_({ok:false,error:'UNKNOWN_ACTION'});
@@ -27,59 +29,45 @@ function doGet(e) {
       studentName:verified.name,
       lastLessonDate:rows.length ? rows[0].lessonDate : null,
       count:rows.length,
+      elapsedMs:Date.now() - started,
       attendance:rows
     });
   } catch (err) {
     console.error(err);
-    return rmAttendanceJson_({ok:false,error:'SERVER_ERROR'});
+    return rmAttendanceJson_({ok:false,error:'SERVER_ERROR',elapsedMs:Date.now() - started});
   }
 }
 
 function rmAttendanceVerifyStudent_(ss, name, phone4) {
   const sheet = ss.getSheetByName(RM_ATTENDANCE_API.VERIFY_SHEET);
   if (!sheet) return {ok:false,error:'VERIFY_SHEET_MISSING'};
-  if (sheet.getLastRow() < 2) return {ok:false,error:'STUDENT_NOT_FOUND'};
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return {ok:false,error:'STUDENT_NOT_FOUND'};
 
-  const hits = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1)
-    .createTextFinder(name)
-    .matchEntireCell(true)
-    .matchCase(false)
-    .findAll();
+  // 공개조회 시트는 작으므로 A:E를 한 번만 읽는다.
+  const values = sheet.getRange(2, 1, lastRow - 1, 5).getDisplayValues();
+  const target = rmAttendanceNormalize_(name);
+  const matches = values.filter(r => rmAttendanceNormalize_(r[0]) === target);
+  if (!matches.length) return {ok:false,error:'STUDENT_NOT_FOUND'};
 
-  if (!hits.length) return {ok:false,error:'STUDENT_NOT_FOUND'};
-
-  // 이름이 유일하면 전화번호 없이 바로 허용한다.
-  if (hits.length === 1) {
-    const row = hits[0].getRow();
+  if (matches.length === 1) {
     if (phone4) {
-      const storedPhone4 = rmAttendanceDigits_(sheet.getRange(row, 5).getDisplayValue()).slice(-4);
-      if (storedPhone4 && storedPhone4 !== phone4) return {ok:false,error:'PHONE_MISMATCH'};
+      const stored = rmAttendanceDigits_(matches[0][4]).slice(-4);
+      if (stored && stored !== phone4) return {ok:false,error:'PHONE_MISMATCH'};
     }
-    return {ok:true,name:rmAttendanceText_(sheet.getRange(row, 1).getDisplayValue())};
+    return {ok:true,name:rmAttendanceText_(matches[0][0])};
   }
 
-  // 동명이인일 때만 전화번호 뒷4자리를 요구한다.
-  if (phone4.length !== 4) return rmAttendanceDuplicate_();
-
-  const exact = [];
-  for (let i = 0; i < hits.length; i += 1) {
-    const row = hits[i].getRow();
-    const storedPhone4 = rmAttendanceDigits_(sheet.getRange(row, 5).getDisplayValue()).slice(-4);
-    if (storedPhone4 === phone4) exact.push(row);
-  }
-
+  if (phone4.length !== 4) return {ok:false,error:'PHONE4_REQUIRED',reason:'DUPLICATE_NAME'};
+  const exact = matches.filter(r => rmAttendanceDigits_(r[4]).slice(-4) === phone4);
   if (!exact.length) return {ok:false,error:'PHONE_MISMATCH'};
   if (exact.length > 1) return {ok:false,error:'IDENTITY_AMBIGUOUS'};
-  return {ok:true,name:rmAttendanceText_(sheet.getRange(exact[0], 1).getDisplayValue())};
-}
-
-function rmAttendanceDuplicate_() {
-  return {ok:false,error:'PHONE4_REQUIRED',reason:'DUPLICATE_NAME'};
+  return {ok:true,name:rmAttendanceText_(exact[0][0])};
 }
 
 function rmAttendanceGetRows_(ss, studentName) {
   const cache = CacheService.getScriptCache();
-  const cacheKey = 'att:' + Utilities.base64EncodeWebSafe(studentName, Utilities.Charset.UTF_8);
+  const cacheKey = 'att:v3:' + Utilities.base64EncodeWebSafe(studentName, Utilities.Charset.UTF_8);
   const cached = cache.get(cacheKey);
   if (cached) {
     try { return JSON.parse(cached); } catch (e) {}
@@ -87,28 +75,35 @@ function rmAttendanceGetRows_(ss, studentName) {
 
   const sheet = ss.getSheetByName(RM_ATTENDANCE_API.SOURCE_SHEET);
   if (!sheet) throw new Error('SOURCE_SHEET_MISSING');
-  if (sheet.getLastRow() < 2) return [];
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
 
-  const hits = sheet.getRange(2, 6, sheet.getLastRow() - 1, 1)
-    .createTextFinder(studentName)
-    .matchEntireCell(true)
-    .matchCase(false)
-    .findAll();
+  // 학생명 열(F)만 읽어 전체 16열 스캔을 피한다.
+  const names = sheet.getRange(2, 6, lastRow - 1, 1).getDisplayValues();
+  const target = rmAttendanceNormalize_(studentName);
+  const rowNumbers = [];
+  for (let i = 0; i < names.length; i += 1) {
+    if (rmAttendanceNormalize_(names[i][0]) === target) rowNumbers.push(i + 2);
+  }
+  if (!rowNumbers.length) return [];
 
-  if (!hits.length) return [];
-
+  // 최근 MAX_ROWS개까지만 비연속 행을 Sheets API batchGet으로 묶어 읽는다.
+  const selected = rowNumbers.slice(-RM_ATTENDANCE_API.MAX_ROWS);
+  const rawRows = rmAttendanceBatchGetRows_(selected);
   const result = [];
-  for (let i = 0; i < hits.length; i += 1) {
-    const row = hits[i].getRow();
-    const r = sheet.getRange(row, 1, 1, 16).getValues()[0];
 
+  for (let i = 0; i < rawRows.length; i += 1) {
+    const r = rawRows[i];
+    if (!r || r.length < 2) continue;
     const lessonDate = rmAttendanceDate_(r[1]);
     if (!lessonDate) continue;
 
     const chargeUnits = rmAttendanceNumber_(r[11]);
     const completed = rmAttendanceNumberOrNull_(r[12]);
     const pkg = rmAttendanceNumberOrNull_(r[13]);
-    const counter = completed === null ? '' : (pkg === null ? rmAttendanceFmt_(completed) + '/' : rmAttendanceFmt_(completed) + '(' + rmAttendanceFmt_(pkg) + ')');
+    const counter = completed === null ? '' : (pkg === null
+      ? rmAttendanceFmt_(completed) + '/'
+      : rmAttendanceFmt_(completed) + '(' + rmAttendanceFmt_(pkg) + ')');
 
     result.push({
       lessonDate:lessonDate,
@@ -122,7 +117,7 @@ function rmAttendanceGetRows_(ss, studentName) {
   }
 
   result.sort((a,b) => (b.sortKey - a.sortKey) || b.lessonDate.localeCompare(a.lessonDate));
-  const safe = result.slice(0, RM_ATTENDANCE_API.MAX_ROWS).map(r => ({
+  const safe = result.map(r => ({
     lessonDate:r.lessonDate,
     teacher:r.teacher,
     classType:r.classType,
@@ -133,6 +128,31 @@ function rmAttendanceGetRows_(ss, studentName) {
 
   try { cache.put(cacheKey, JSON.stringify(safe), RM_ATTENDANCE_API.CACHE_SECONDS); } catch (e) {}
   return safe;
+}
+
+function rmAttendanceBatchGetRows_(rowNumbers) {
+  const id = RM_ATTENDANCE_API.DATA_SPREADSHEET_ID;
+  const sheetName = RM_ATTENDANCE_API.SOURCE_SHEET.replace(/'/g, "''");
+  const token = ScriptApp.getOAuthToken();
+  const out = [];
+
+  for (let offset = 0; offset < rowNumbers.length; offset += RM_ATTENDANCE_API.BATCH_SIZE) {
+    const chunk = rowNumbers.slice(offset, offset + RM_ATTENDANCE_API.BATCH_SIZE);
+    const qs = chunk.map(row => 'ranges=' + encodeURIComponent("'" + sheetName + "'!A" + row + ':P' + row)).join('&');
+    const url = 'https://sheets.googleapis.com/v4/spreadsheets/' + encodeURIComponent(id) + '/values:batchGet?' + qs + '&majorDimension=ROWS&valueRenderOption=UNFORMATTED_VALUE';
+    const resp = UrlFetchApp.fetch(url, {
+      method:'get',
+      headers:{Authorization:'Bearer ' + token},
+      muteHttpExceptions:true
+    });
+    if (resp.getResponseCode() !== 200) throw new Error('BATCH_GET_' + resp.getResponseCode());
+    const payload = JSON.parse(resp.getContentText());
+    const ranges = payload.valueRanges || [];
+    for (let i = 0; i < ranges.length; i += 1) {
+      out.push((ranges[i].values && ranges[i].values[0]) ? ranges[i].values[0] : []);
+    }
+  }
+  return out;
 }
 
 function rmAttendanceNumber_(value) {
@@ -154,11 +174,20 @@ function rmAttendanceDate_(value) {
   if (value instanceof Date && !isNaN(value.getTime())) {
     return Utilities.formatDate(value, RM_ATTENDANCE_API.TZ, 'yyyy-MM-dd');
   }
+  // Sheets API의 날짜 serial number도 처리한다.
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const millis = Math.round((value - 25569) * 86400 * 1000);
+    return Utilities.formatDate(new Date(millis), RM_ATTENDANCE_API.TZ, 'yyyy-MM-dd');
+  }
   const text = rmAttendanceText_(value);
   if (!text) return '';
   const parsed = new Date(text);
   if (isNaN(parsed.getTime())) return '';
   return Utilities.formatDate(parsed, RM_ATTENDANCE_API.TZ, 'yyyy-MM-dd');
+}
+
+function rmAttendanceNormalize_(value) {
+  return rmAttendanceText_(value).toLowerCase().replace(/\s+/g, '');
 }
 
 function rmAttendanceText_(value) {
