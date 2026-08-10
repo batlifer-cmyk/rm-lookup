@@ -39,18 +39,26 @@ function doGet(e) {
 function rmAttendanceVerifyStudent_(ss, name, phone4) {
   const sheet = ss.getSheetByName(RM_ATTENDANCE_API.VERIFY_SHEET);
   if (!sheet) return {ok:false,error:'VERIFY_SHEET_MISSING'};
+  if (sheet.getLastRow() < 2) return {ok:false,error:'STUDENT_NOT_FOUND'};
 
-  const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return {ok:false,error:'STUDENT_NOT_FOUND'};
-  const values = sheet.getRange(2, 1, lastRow - 1, 5).getDisplayValues();
-  const target = rmAttendanceNormalize_(name);
-  const matches = values.filter(r => rmAttendanceNormalize_(r[0]) === target);
-  if (!matches.length) return {ok:false,error:'STUDENT_NOT_FOUND'};
+  const hits = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1)
+    .createTextFinder(name)
+    .matchEntireCell(true)
+    .matchCase(false)
+    .findAll();
 
-  const exact = matches.filter(r => rmAttendanceDigits_(r[4]).slice(-4) === phone4);
+  if (!hits.length) return {ok:false,error:'STUDENT_NOT_FOUND'};
+
+  const exact = [];
+  for (let i = 0; i < hits.length; i += 1) {
+    const row = hits[i].getRow();
+    const storedPhone4 = rmAttendanceDigits_(sheet.getRange(row, 5).getDisplayValue()).slice(-4);
+    if (storedPhone4 === phone4) exact.push(row);
+  }
+
   if (!exact.length) return {ok:false,error:'PHONE_MISMATCH'};
   if (exact.length > 1) return {ok:false,error:'IDENTITY_AMBIGUOUS'};
-  return {ok:true,name:rmAttendanceText_(exact[0][0])};
+  return {ok:true,name:rmAttendanceText_(sheet.getRange(exact[0], 1).getDisplayValue())};
 }
 
 function rmAttendanceGetRows_(ss, studentName) {
@@ -63,20 +71,21 @@ function rmAttendanceGetRows_(ss, studentName) {
 
   const sheet = ss.getSheetByName(RM_ATTENDANCE_API.SOURCE_SHEET);
   if (!sheet) throw new Error('SOURCE_SHEET_MISSING');
+  if (sheet.getLastRow() < 2) return [];
 
-  const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return [];
+  // Search only the Student column first, then read only matched rows.
+  const hits = sheet.getRange(2, 6, sheet.getLastRow() - 1, 1)
+    .createTextFinder(studentName)
+    .matchEntireCell(true)
+    .matchCase(false)
+    .findAll();
 
-  // Normalized V2 source only. No free-form Master Time Data note is returned.
-  // A Teacher, B Date, F Student, J Class type, L chargeUnits,
-  // M counterCompleted, N counterPackage, P rowSortKey.
-  const values = sheet.getRange(2, 1, lastRow - 1, 16).getValues();
-  const target = rmAttendanceNormalize_(studentName);
+  if (!hits.length) return [];
+
   const result = [];
-
-  for (let i = 0; i < values.length; i += 1) {
-    const r = values[i];
-    if (rmAttendanceNormalize_(r[5]) !== target) continue;
+  for (let i = 0; i < hits.length; i += 1) {
+    const row = hits[i].getRow();
+    const r = sheet.getRange(row, 1, 1, 16).getValues()[0];
 
     const lessonDate = rmAttendanceDate_(r[1]);
     if (!lessonDate) continue;
@@ -135,10 +144,6 @@ function rmAttendanceDate_(value) {
   const parsed = new Date(text);
   if (isNaN(parsed.getTime())) return '';
   return Utilities.formatDate(parsed, RM_ATTENDANCE_API.TZ, 'yyyy-MM-dd');
-}
-
-function rmAttendanceNormalize_(value) {
-  return rmAttendanceText_(value).toLowerCase().replace(/\s+/g, '');
 }
 
 function rmAttendanceText_(value) {
