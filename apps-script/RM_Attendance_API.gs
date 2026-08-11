@@ -64,6 +64,28 @@ function doGet(e) {
   }
 }
 
+function authorizeRestAccess() {
+  // Run this once from the Apps Script editor to trigger OAuth consent for
+  // external requests + spreadsheet access used by the deployed web app.
+  const token = ScriptApp.getOAuthToken();
+  const url = 'https://sheets.googleapis.com/v4/spreadsheets/' +
+    encodeURIComponent(RM_ATTENDANCE_API.DATA_SPREADSHEET_ID) +
+    '?fields=properties.title';
+  const resp = UrlFetchApp.fetch(url, {
+    method:'get',
+    headers:{Authorization:'Bearer ' + token},
+    muteHttpExceptions:true
+  });
+  const code = resp.getResponseCode();
+  const text = resp.getContentText();
+  if (code < 200 || code >= 300) {
+    throw new Error('AUTH_TEST_FAILED_' + code + ':' + text.slice(0,300));
+  }
+  const payload = JSON.parse(text);
+  console.log('REST authorization OK: ' + ((payload.properties && payload.properties.title) || 'spreadsheet'));
+  return true;
+}
+
 function rmAttendanceVerifyStudentRest_(name, phone4) {
   const range = "'" + RM_ATTENDANCE_API.VERIFY_SHEET.replace(/'/g,"''") + "'!A2:E" + RM_ATTENDANCE_API.VERIFY_END_ROW;
   const payload = rmAttendanceValuesGet_(range, 'FORMATTED_VALUE');
