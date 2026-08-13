@@ -104,7 +104,7 @@ function rmVerifyStudent_(name, phone4) {
 
 function rmFindRows_(studentName) {
   const cache = CacheService.getScriptCache();
-  const key = 'rows:master:v1:' + Utilities.base64EncodeWebSafe(studentName,Utilities.Charset.UTF_8);
+  const key = 'rows:master:v2:' + Utilities.base64EncodeWebSafe(studentName,Utilities.Charset.UTF_8);
   const cached = cache.get(key);
   if (cached) { try { return JSON.parse(cached); } catch(e) {} }
 
@@ -123,20 +123,23 @@ function rmFindRows_(studentName) {
 
 function rmGetAttendance_(studentName,rowNumbers) {
   const cache = CacheService.getScriptCache();
-  const key = 'att:master:v1:' + Utilities.base64EncodeWebSafe(studentName,Utilities.Charset.UTF_8);
+  const key = 'att:master:v2:' + Utilities.base64EncodeWebSafe(studentName,Utilities.Charset.UTF_8);
   const cached = cache.get(key);
   if (cached) { try { return JSON.parse(cached); } catch(e) {} }
   if (!rowNumbers.length) return [];
 
   const sheetName = RM_ATTENDANCE_API.SOURCE_SHEET.replace(/'/g,"''");
   const rawRows = [];
+
   for (let offset=0;offset<rowNumbers.length;offset+=RM_ATTENDANCE_API.BATCH_SIZE) {
     const chunk = rowNumbers.slice(offset,offset+RM_ATTENDANCE_API.BATCH_SIZE);
-    const qs = chunk.map(row=>'ranges='+encodeURIComponent("'"+sheetName+"'!A"+row+':K'+row)).join('&');
-    const path = '/' + encodeURIComponent(RM_ATTENDANCE_API.DATA_SPREADSHEET_ID) + '/values:batchGet?' + qs + '&majorDimension=ROWS&valueRenderOption=FORMATTED_VALUE';
-    const payload = rmSheetsFetchJson_(path);
+    const filters = chunk.map(row => ({a1Range:"'"+sheetName+"'!A"+row+':K'+row}));
+    const payload = rmBatchGetByDataFilter_(filters);
     const ranges = payload.valueRanges || [];
-    for (let i=0;i<ranges.length;i+=1) rawRows.push((ranges[i].values&&ranges[i].values[0])?ranges[i].values[0]:[]);
+    for (let i=0;i<ranges.length;i+=1) {
+      const vr = ranges[i] && ranges[i].valueRange;
+      rawRows.push((vr && vr.values && vr.values[0]) ? vr.values[0] : []);
+    }
   }
 
   const target = rmNormalize_(studentName);
@@ -161,6 +164,28 @@ function rmGetAttendance_(studentName,rowNumbers) {
   result.sort((a,b)=>b.lessonDate.localeCompare(a.lessonDate));
   try { cache.put(key,JSON.stringify(result),RM_ATTENDANCE_API.CACHE_SECONDS); } catch(e) {}
   return result;
+}
+
+function rmBatchGetByDataFilter_(dataFilters) {
+  const url = 'https://sheets.googleapis.com/v4/spreadsheets/' +
+    encodeURIComponent(RM_ATTENDANCE_API.DATA_SPREADSHEET_ID) +
+    '/values:batchGetByDataFilter';
+  const body = {
+    dataFilters:dataFilters,
+    majorDimension:'ROWS',
+    valueRenderOption:'FORMATTED_VALUE'
+  };
+  const resp = UrlFetchApp.fetch(url,{
+    method:'post',
+    contentType:'application/json',
+    headers:{Authorization:'Bearer '+ScriptApp.getOAuthToken()},
+    payload:JSON.stringify(body),
+    muteHttpExceptions:true
+  });
+  const code = resp.getResponseCode();
+  const text = resp.getContentText();
+  if (code < 200 || code >= 300) throw new Error('SHEETS_API_' + code + ':' + text.slice(0,300));
+  return JSON.parse(text);
 }
 
 function rmCounterFromNote_(note) {
