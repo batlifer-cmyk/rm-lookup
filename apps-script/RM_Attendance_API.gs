@@ -2,6 +2,7 @@ const RM_ATTENDANCE_API = Object.freeze({
   DATA_SPREADSHEET_ID: '16ZKz55oMD0wBUtv9-hMk_HrPfhxRAd9HQhtbY8981x0',
   VERIFY_SHEET: 'Student_Page_View',
   SOURCE_SHEET: 'Master Time Data',
+  PUBLIC_CSV_URL: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTDHzGU8F-Mg7bl0Vs0Sk_8NABqRg6ZGJEidR-icifeg2DOBILIYc9lHVSR1e2npoSuIpFO57yRh2yC/pub?gid=550578481&single=true&output=csv',
   TZ: 'Asia/Seoul',
   CACHE_SECONDS: 120,
   VERIFY_END_ROW: 3000,
@@ -28,6 +29,11 @@ function doGet(e) {
     }
 
     if (!name) return rmJson_({ok:false,error:'NAME_REQUIRED',elapsedMs:Date.now()-started});
+
+    if (action === 'summary') {
+      const rows = rmSummaryLookup_(name, phone4);
+      return rmJson_({ok:true,count:rows.length,elapsedMs:Date.now()-started,rows:rows});
+    }
 
     const verified = rmVerifyStudent_(name, phone4);
     if (!verified.ok) {
@@ -74,6 +80,47 @@ function authorizeRestAccess() {
   const payload = JSON.parse(text);
   console.log('REST authorization OK: ' + ((payload.properties && payload.properties.title) || 'spreadsheet'));
   return true;
+}
+
+function rmSummaryLookup_(name, phone4) {
+  const cache = CacheService.getScriptCache();
+  const cacheKey = 'summary:csv:v1';
+  let csv = cache.get(cacheKey);
+
+  if (!csv) {
+    const resp = UrlFetchApp.fetch(RM_ATTENDANCE_API.PUBLIC_CSV_URL,{method:'get',muteHttpExceptions:true,followRedirects:true});
+    const code = resp.getResponseCode();
+    if (code < 200 || code >= 300) throw new Error('SUMMARY_CSV_' + code);
+    csv = resp.getContentText('UTF-8');
+    try { cache.put(cacheKey,csv,RM_ATTENDANCE_API.CACHE_SECONDS); } catch(e) {}
+  }
+
+  const table = Utilities.parseCsv(csv);
+  if (!table.length) return [];
+  const headers = table[0].map(h=>rmText_(h));
+  const nameIdx = headers.indexOf('학생명');
+  const phoneIdx = headers.indexOf('전화번호');
+  if (nameIdx < 0) throw new Error('SUMMARY_NAME_COLUMN_MISSING');
+
+  const q = rmText_(name);
+  let rows = [];
+  for (let i=1;i<table.length;i+=1) {
+    const r = table[i] || [];
+    const studentName = rmText_(r[nameIdx]);
+    if (!studentName || studentName.indexOf(q) === -1) continue;
+    const obj = {};
+    for (let c=0;c<headers.length;c+=1) {
+      if (headers[c]) obj[headers[c]] = r[c] === undefined ? '' : r[c];
+    }
+    rows.push(obj);
+  }
+
+  if (phone4.length === 4 && phoneIdx >= 0) {
+    const exact = rows.filter(r=>rmDigits_(r['전화번호']).slice(-4)===phone4);
+    if (exact.length) rows = exact;
+  }
+
+  return rows;
 }
 
 function rmVerifyStudent_(name, phone4) {
