@@ -1,9 +1,12 @@
 const RM_ATTENDANCE_API = Object.freeze({
   DATA_SPREADSHEET_ID: '16ZKz55oMD0wBUtv9-hMk_HrPfhxRAd9HQhtbY8981x0',
+  SUMMARY_SPREADSHEET_ID: '1P42_8yxR0Tlys8g48Cq1h4SryRHzTlljE0A-bvngwnE',
+  SUMMARY_SHEET: '공개조회가능 정보모음_V2',
   VERIFY_SHEET: 'Student_Page_View',
   SOURCE_SHEET: 'Master Time Data',
   TZ: 'Asia/Seoul',
   CACHE_SECONDS: 120,
+  SUMMARY_END_ROW: 2000,
   VERIFY_END_ROW: 3000,
   SOURCE_END_ROW: 23000,
   MAX_ROWS: 300,
@@ -60,32 +63,37 @@ function authorizeRestAccess() {
 }
 
 function rmSummaryFromSource_(query, phone4) {
-  const candidates = rmFindPublicStudents_(query, phone4);
-  const out = [];
-  for (let i=0;i<candidates.length;i+=1) {
-    const s = candidates[i];
-    const rowNumbers = rmFindRows_(s.name);
-    const attendance = rmGetAttendance_(s.name,rowNumbers);
-    const latest = attendance.length ? attendance[0] : null;
-    const pkg = latest ? rmCounterPackage_(latest.counter) : null;
-    const done = latest ? rmCounterDone_(latest.counter) : null;
-    const remain = pkg !== null && done !== null ? Math.max(0,pkg-done) : null;
-    out.push({
-      '학생명':s.name,
-      '전화번호':s.phone4,
-      '등록횟수':pkg === null ? '' : pkg,
-      '잔여':remain === null ? '' : remain,
-      '회차상태':pkg === null ? '확인 필요' : '확정',
-      '최근등록일':'',
-      '마지막수업일':latest ? latest.lessonDate : '',
-      '미납선수업':'',
-      '졸업여부':s.status === 'graduate' ? '졸업' : '',
-      '안내':pkg === null ? '최근 수업기록의 회차표기를 운영팀이 확인하고 있습니다.' : ''
+  const range = "'" + RM_ATTENDANCE_API.SUMMARY_SHEET.replace(/'/g,"''") + "'!A2:J" + RM_ATTENDANCE_API.SUMMARY_END_ROW;
+  const values = (rmValuesGetFrom_(RM_ATTENDANCE_API.SUMMARY_SPREADSHEET_ID,range,'FORMATTED_VALUE').values || []);
+  const q = rmNormalize_(query);
+  let matches = [];
+
+  for (let i=0;i<values.length;i+=1) {
+    const r = values[i] || [];
+    const name = rmText_(r[0]);
+    if (!name || rmNormalize_(name).indexOf(q) === -1) continue;
+    const rowPhone4 = rmDigits_(r[4]).slice(-4);
+    matches.push({
+      '학생명':name,
+      '전화번호':rowPhone4,
+      '등록횟수':r[1] === undefined ? '' : r[1],
+      '잔여':r[2] === undefined ? '' : r[2],
+      '최근등록일':rmText_(r[3]),
+      '졸업여부':rmText_(r[5]),
+      '회차상태':rmText_(r[6]),
+      '안내':rmText_(r[7]),
+      '마지막수업일':rmText_(r[8]),
+      '상세키':rmText_(r[9]),
+      '미납선수업':''
     });
   }
-  return out;
-}
 
+  if (phone4.length === 4) {
+    const exact = matches.filter(r=>r['전화번호']===phone4);
+    if (exact.length) matches = exact;
+  }
+  return matches.slice(0,10);
+}
 function rmFindPublicStudents_(query, phone4) {
   const range = "'" + RM_ATTENDANCE_API.VERIFY_SHEET.replace(/'/g,"''") + "'!A2:L" + RM_ATTENDANCE_API.VERIFY_END_ROW;
   const values = (rmValuesGet_(range,'FORMATTED_VALUE').values || []);
@@ -191,7 +199,8 @@ function rmCounterFromNote_(note) {
 function rmCounterDone_(counter){const m=rmText_(counter).match(/^(\d+(?:\.\d+)?)(?:\(|\/)/);return m?Number(m[1]):null;}
 function rmCounterPackage_(counter){const m=rmText_(counter).match(/^\d+(?:\.\d+)?\((\d+(?:\.\d+)?)\)/);return m?Number(m[1]):null;}
 function rmHoursToUnits_(value){const text=rmText_(value).toLowerCase();if(!text||text==='n')return 0;if(text==='s1')return 0.5;const n=Number(text);return Number.isFinite(n)&&n>0?n:0;}
-function rmValuesGet_(range,valueRenderOption){const path='/'+encodeURIComponent(RM_ATTENDANCE_API.DATA_SPREADSHEET_ID)+'/values/'+encodeURIComponent(range)+'?majorDimension=ROWS&valueRenderOption='+encodeURIComponent(valueRenderOption||'FORMATTED_VALUE');return rmSheetsFetchJson_(path);}
+function rmValuesGetFrom_(spreadsheetId,range,valueRenderOption){const path='/'+encodeURIComponent(spreadsheetId)+'/values/'+encodeURIComponent(range)+'?majorDimension=ROWS&valueRenderOption='+encodeURIComponent(valueRenderOption||'FORMATTED_VALUE');return rmSheetsFetchJson_(path);}
+function rmValuesGet_(range,valueRenderOption){return rmValuesGetFrom_(RM_ATTENDANCE_API.DATA_SPREADSHEET_ID,range,valueRenderOption);}
 function rmSheetsFetchJson_(path){const url='https://sheets.googleapis.com/v4/spreadsheets'+path;const resp=UrlFetchApp.fetch(url,{method:'get',headers:{Authorization:'Bearer '+ScriptApp.getOAuthToken()},muteHttpExceptions:true});const code=resp.getResponseCode(),text=resp.getContentText();if(code<200||code>=300)throw new Error('SHEETS_API_'+code+':'+text.slice(0,300));return JSON.parse(text);}
 function rmDate_(value){const text=rmText_(value);if(!text)return'';const d=new Date(text);if(isNaN(d.getTime()))return'';return Utilities.formatDate(d,RM_ATTENDANCE_API.TZ,'yyyy-MM-dd');}
 function rmFmt_(value){return Number.isInteger(value)?String(value):String(Number(value.toFixed(2)));}
