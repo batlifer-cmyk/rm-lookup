@@ -2,13 +2,10 @@ const RM_ATTENDANCE_API = Object.freeze({
   DATA_SPREADSHEET_ID: '16ZKz55oMD0wBUtv9-hMk_HrPfhxRAd9HQhtbY8981x0',
   SUMMARY_SPREADSHEET_ID: '1P42_8yxR0Tlys8g48Cq1h4SryRHzTlljE0A-bvngwnE',
   SUMMARY_SHEET: '공개조회가능 정보모음_V2',
-  REGISTRATION_SHEET: '_DB_등록로그',
-  REGISTRATION_CACHE_SHEET: '_API_Registration_Cache',
   VERIFY_SHEET: 'Student_Page_View',
   SOURCE_SHEET: 'Master Time Data',
   TZ: 'Asia/Seoul',
   CACHE_SECONDS: 120,
-  REGISTRATION_END_ROW: 350,
   SUMMARY_END_ROW: 2000,
   VERIFY_END_ROW: 3000,
   SOURCE_END_ROW: 23000,
@@ -66,119 +63,36 @@ function authorizeRestAccess() {
 }
 
 function rmSummaryFromSource_(query, phone4) {
-  const candidates = rmFindPublicStudents_(query, phone4);
-  const registrations = rmRegistrationCache_();
-  const out = [];
-  for (let i=0;i<candidates.length;i+=1) {
-    const s = candidates[i];
-    const progress = rmProgressFromStudentPage_(s.result8Unit);
-    const registration = registrations[rmNormalize_(s.name)] || null;
-    const regCount = registration ? rmNumber_(registration.count) : null;
-    const total = regCount !== null ? regCount : progress.total;
-    const remain = total !== null && progress.used !== null ? Math.max(0,total-progress.used) : null;
-    const confirmed = rmText_(registration && registration.status) || (total === null ? '확인 필요' : '확정');
-    out.push({
-      '학생명':s.name,
-      '전화번호':s.phone4,
-      '등록횟수':total === null ? '' : total,
-      '잔여':remain === null ? '' : remain,
-      '최근등록일':registration ? registration.date : '',
-      '졸업여부':s.status === 'graduate' ? '졸업' : '',
-      '회차상태':confirmed,
-      '안내':total === null || remain === null ? '최근 수업기록의 회차표기를 운영팀이 확인하고 있습니다.' : '',
-      '마지막수업일':'',
-      '상세키':'',
-      '미납선수업':''
-    });
-  }
-  return out;
-}
+  const range = "'" + RM_ATTENDANCE_API.SUMMARY_SHEET.replace(/'/g,"''") + "'!A2:J" + RM_ATTENDANCE_API.SUMMARY_END_ROW;
+  const values = (rmValuesGetFrom_(RM_ATTENDANCE_API.SUMMARY_SPREADSHEET_ID,range,'FORMATTED_VALUE').values || []);
+  const q = rmNormalize_(query);
+  let matches = [];
 
-function rmProgressFromStudentPage_(value) {
-  const text = rmText_(value);
-  const m = text.match(/\d+번째\s*(\d+(?:\.\d+)?)회권의\s*(\d+(?:\.\d+)?)회차/);
-  if (!m) return {total:null,used:null};
-  return {total:Number(m[1]),used:Number(m[2])};
-}
-
-function rmRegistrationCache_() {
-  const range = "'" + RM_ATTENDANCE_API.REGISTRATION_CACHE_SHEET.replace(/'/g,"''") + "'!A2:E2000";
-  let values = [];
-  try {
-    values = (rmValuesGet_(range,'FORMATTED_VALUE').values || []);
-  } catch (err) {
-    console.warn('Registration cache is unavailable: ' + rmText_(err && err.message));
-    return {};
-  }
-  const registrations = {};
   for (let i=0;i<values.length;i+=1) {
     const r = values[i] || [];
     const name = rmText_(r[0]);
-    if (!name) continue;
-    registrations[rmNormalize_(name)] = {
-      date:rmText_(r[1]),
-      count:r[2],
-      status:rmText_(r[3])
-    };
-  }
-  return registrations;
-}
-
-function setupRegistrationCache() {
-  const trigger = rmInstallRegistrationCacheTrigger_();
-  const refresh = rmRefreshRegistrationCache_();
-  return {ok:true,trigger:trigger,refresh:refresh};
-}
-
-function rmRefreshRegistrationCache_() {
-  const lock = LockService.getScriptLock();
-  if (!lock.tryLock(5000)) return {ok:false,error:'REFRESH_ALREADY_RUNNING'};
-  try {
-    const sourceRange = "'" + RM_ATTENDANCE_API.REGISTRATION_SHEET.replace(/'/g,"''") + "'!A2:J" + RM_ATTENDANCE_API.REGISTRATION_END_ROW;
-    const values = (rmValuesGetFrom_(RM_ATTENDANCE_API.SUMMARY_SPREADSHEET_ID,sourceRange,'FORMATTED_VALUE').values || []);
-    const latest = {};
-    for (let i=0;i<values.length;i+=1) {
-      const r = values[i] || [];
-      const name = rmText_(r[1]);
-      const date = rmRegistrationDate_(r[0]);
-      if (!name || !date) continue;
-      const item = {name:name,date:date,count:r[4],status:rmText_(r[8])};
-      const key = rmNormalize_(name);
-      if (!latest[key] || date > latest[key].date) latest[key] = item;
-    }
-
-    const updatedAt = Utilities.formatDate(new Date(),RM_ATTENDANCE_API.TZ,'yyyy-MM-dd HH:mm:ss');
-    const rows = Object.keys(latest).sort().map(key=>{
-      const item = latest[key];
-      return [item.name,item.date,item.count,item.status,updatedAt];
+    if (!name || rmNormalize_(name).indexOf(q) === -1) continue;
+    const rowPhone4 = rmDigits_(r[4]).slice(-4);
+    matches.push({
+      '학생명':name,
+      '전화번호':rowPhone4,
+      '등록횟수':r[1] === undefined ? '' : r[1],
+      '잔여':r[2] === undefined ? '' : r[2],
+      '최근등록일':rmText_(r[3]),
+      '졸업여부':rmText_(r[5]),
+      '회차상태':rmText_(r[6]),
+      '안내':rmText_(r[7]),
+      '마지막수업일':rmText_(r[8]),
+      '상세키':rmText_(r[9]),
+      '미납선수업':''
     });
-    const spreadsheet = SpreadsheetApp.openById(RM_ATTENDANCE_API.DATA_SPREADSHEET_ID);
-    let sheet = spreadsheet.getSheetByName(RM_ATTENDANCE_API.REGISTRATION_CACHE_SHEET);
-    if (!sheet) sheet = spreadsheet.insertSheet(RM_ATTENDANCE_API.REGISTRATION_CACHE_SHEET);
-    sheet.clearContents();
-    sheet.getRange(1,1,1,5).setValues([['student_name','latest_registration_date','registration_count','status','cache_updated_at']]);
-    if (rows.length) sheet.getRange(2,1,rows.length,5).setValues(rows);
-    if (!sheet.isSheetHidden()) sheet.hideSheet();
-    return {ok:true,count:rows.length,updatedAt:updatedAt};
-  } finally {
-    lock.releaseLock();
   }
-}
 
-function rmInstallRegistrationCacheTrigger_() {
-  const handler = 'rmRefreshRegistrationCache_';
-  ScriptApp.getProjectTriggers().forEach(trigger=>{
-    if (trigger.getHandlerFunction() === handler) ScriptApp.deleteTrigger(trigger);
-  });
-  ScriptApp.newTrigger(handler).timeBased().everyHours(1).create();
-  return {ok:true,handler:handler,interval:'1 hour'};
-}
-
-function rmRegistrationDate_(value) {
-  const text = rmText_(value);
-  const match = text.match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
-  if (!match) return '';
-  return match[1] + '-' + String(Number(match[2])).padStart(2,'0') + '-' + String(Number(match[3])).padStart(2,'0');
+  if (phone4.length === 4) {
+    const exact = matches.filter(r=>r['전화번호']===phone4);
+    if (exact.length) matches = exact;
+  }
+  return matches.slice(0,10);
 }
 function rmFindPublicStudents_(query, phone4) {
   const range = "'" + RM_ATTENDANCE_API.VERIFY_SHEET.replace(/'/g,"''") + "'!A2:L" + RM_ATTENDANCE_API.VERIFY_END_ROW;
@@ -190,7 +104,7 @@ function rmFindPublicStudents_(query, phone4) {
     const isPublic = String(r[0] || '').toUpperCase() === 'TRUE';
     const displayName = rmText_(r[1]);
     if (!isPublic || rmNormalize_(displayName).indexOf(q) === -1) continue;
-    matches.push({name:displayName,phone4:rmDigits_(r[3]).slice(-4),status:rmText_(r[7]).toLowerCase(),result8Unit:rmText_(r[8])});
+    matches.push({name:displayName,phone4:rmDigits_(r[3]).slice(-4),status:rmText_(r[7]).toLowerCase()});
   }
   if (phone4.length === 4) {
     const exact = matches.filter(r=>r.phone4===phone4);
@@ -290,7 +204,6 @@ function rmValuesGet_(range,valueRenderOption){return rmValuesGetFrom_(RM_ATTEND
 function rmSheetsFetchJson_(path){const url='https://sheets.googleapis.com/v4/spreadsheets'+path;const resp=UrlFetchApp.fetch(url,{method:'get',headers:{Authorization:'Bearer '+ScriptApp.getOAuthToken()},muteHttpExceptions:true});const code=resp.getResponseCode(),text=resp.getContentText();if(code<200||code>=300)throw new Error('SHEETS_API_'+code+':'+text.slice(0,300));return JSON.parse(text);}
 function rmDate_(value){const text=rmText_(value);if(!text)return'';const d=new Date(text);if(isNaN(d.getTime()))return'';return Utilities.formatDate(d,RM_ATTENDANCE_API.TZ,'yyyy-MM-dd');}
 function rmFmt_(value){return Number.isInteger(value)?String(value):String(Number(value.toFixed(2)));}
-function rmNumber_(value){const text=rmText_(value).replace(/,/g,'');if(!text)return null;const n=Number(text);return Number.isFinite(n)?n:null;}
 function rmNormalize_(value){return rmText_(value).toLowerCase().replace(/\s+/g,'');}
 function rmText_(value){return value===null||value===undefined?'':String(value).trim();}
 function rmDigits_(value){return rmText_(value).replace(/\D/g,'');}
