@@ -7,7 +7,7 @@ It does not call the legacy Apps Script Web App or calculate lessons. It does no
 ## Preview configuration
 
 1. Create a dedicated Google service account with only `spreadsheets.readonly` scope. Share only the spreadsheet containing `_API_Cutover_Snapshot` with its email as Viewer; do not make the sheet public.
-2. In the Vercel **Preview** environment add the variables in `.env.example`. `GOOGLE_PRIVATE_KEY` must be stored as an encrypted Vercel environment variable.
+2. In the Vercel **Preview** environment add the variables in `.env.example`. Store the complete `GOOGLE_SERVICE_ACCOUNT_JSON` only as an encrypted Vercel Preview environment variable; never create a local credential file.
 3. Deploy a Preview, then run `npm test` and perform the five smoke tests below against Preview.
 
 ## Required Preview smoke tests
@@ -21,4 +21,3 @@ It does not call the legacy Apps Script Web App or calculate lessons. It does no
 ## Production gate
 
 Before production, configure a Vercel Firewall rate-limit rule for `POST /api/lookup` (per IP, for example 12 requests / 10 minutes) and repeat the Preview smoke tests. The in-function limiter is a fallback only and is not a distributed rate limiter.
-

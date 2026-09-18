@@ -5,8 +5,14 @@ const crypto = require('node:crypto');
 function base64url(value) { return Buffer.from(value).toString('base64url'); }
 
 async function accessToken(env, fetchImpl = fetch) {
-  const email = env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-  const privateKey = String(env.GOOGLE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
+  let credential;
+  try {
+    credential = JSON.parse(env.GOOGLE_SERVICE_ACCOUNT_JSON || '');
+  } catch (_) {
+    throw new Error('GOOGLE_CREDENTIALS_MISSING');
+  }
+  const email = credential.client_email;
+  const privateKey = String(credential.private_key || '').replace(/\\n/g, '\n');
   if (!email || !privateKey) throw new Error('GOOGLE_CREDENTIALS_MISSING');
   const now = Math.floor(Date.now() / 1000);
   const unsigned = `${base64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }))}.${base64url(JSON.stringify({
@@ -39,4 +45,3 @@ async function readSnapshot(env, fetchImpl = fetch) {
 }
 
 module.exports = { readSnapshot };
-
