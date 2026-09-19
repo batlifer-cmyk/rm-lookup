@@ -44,4 +44,34 @@ async function readSnapshot(env, fetchImpl = fetch) {
   return body.values || [];
 }
 
-module.exports = { readSnapshot };
+async function readAuthIndex(env, fetchImpl = fetch) {
+  const spreadsheetId = env.RM_SNAPSHOT_SPREADSHEET_ID;
+  const sheet = env.RM_AUTH_INDEX_SHEET || '_DB_Student_Master';
+  const expectedCount = Number(env.RM_AUTH_INDEX_COUNT || 110);
+  if (!spreadsheetId || !Number.isInteger(expectedCount) || expectedCount < 1) throw new Error('AUTH_INDEX_CONFIGURATION_INVALID');
+
+  const token = await accessToken(env, fetchImpl);
+  const safeSheet = sheet.replace(/'/g, "''");
+  const ranges = ['B', 'D', 'G'].map(column => `'${safeSheet}'!${column}1:${column}${expectedCount + 1}`);
+  const query = ranges.map(range => `ranges=${encodeURIComponent(range)}`).join('&');
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values:batchGet?majorDimension=ROWS&${query}`;
+  const response = await fetchImpl(url, { headers: { authorization: `Bearer ${token}` } });
+  if (!response.ok) throw new Error('AUTH_INDEX_READ_FAILED');
+  const body = await response.json();
+  const groups = body.valueRanges || [];
+  const columns = groups.map(group => group.values || []);
+  const names = columns[0] || [];
+  const phones = columns[1] || [];
+  const statuses = columns[2] || [];
+  const records = [];
+  for (let index = 1; index <= expectedCount; index += 1) {
+    records.push({
+      studentName: (names[index] || [])[0] || '',
+      phone4: (phones[index] || [])[0] || '',
+      status: (statuses[index] || [])[0] || ''
+    });
+  }
+  return records;
+}
+
+module.exports = { readSnapshot, readAuthIndex };

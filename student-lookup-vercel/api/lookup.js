@@ -1,6 +1,7 @@
 'use strict';
 
-const { readSnapshot } = require('../lib/google-sheets');
+const { readSnapshot, readAuthIndex } = require('../lib/google-sheets');
+const { authenticate } = require('../lib/auth-index');
 const { selectFreshSnapshot, lookupStudent, text } = require('../lib/snapshot');
 
 const hits = new Map();
@@ -28,12 +29,13 @@ module.exports = async function handler(req, res) {
   const phone4 = text(req.body && req.body.phone4).replace(/\D/g, '');
   if (!name || phone4.length !== 4) return send(res, 400, { ok: false, error: 'INVALID_INPUT' });
   try {
-    const values = await readSnapshot(process.env);
+    const [values, authIndex] = await Promise.all([readSnapshot(process.env), readAuthIndex(process.env)]);
     const snapshot = selectFreshSnapshot(values, {
       expectedCount: Number(process.env.RM_SNAPSHOT_EXPECTED_COUNT || 110),
       maxAgeSeconds: Number(process.env.RM_SNAPSHOT_MAX_AGE_SECONDS || 7200)
     });
-    const result = lookupStudent(snapshot.entries, name, phone4);
+    const identity = authenticate(authIndex, name, phone4);
+    const result = identity && lookupStudent(snapshot.entries, identity.studentName);
     // Do not reveal whether the name exists or only the phone suffix was wrong.
     if (!result) return send(res, 404, { ok: false, error: 'NOT_FOUND_OR_IDENTITY_MISMATCH' });
     return send(res, 200, { ok: true, result });
@@ -42,4 +44,3 @@ module.exports = async function handler(req, res) {
     return send(res, 503, { ok: false, error: 'LOOKUP_TEMPORARILY_UNAVAILABLE' });
   }
 };
-
