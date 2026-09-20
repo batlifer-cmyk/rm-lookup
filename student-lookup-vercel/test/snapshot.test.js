@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { selectFreshSnapshot, lookupStudent } = require('../lib/snapshot');
-const { authenticate } = require('../lib/auth-index');
+const { authenticate, allowedPhone4s } = require('../lib/auth-index');
 const handler = require('../api/lookup');
 
 function entry(name, phone4, { remaining = 3, state = '확정', notice = '', lastLessonDate = '2026-09-18', registration = 8 } = {}) {
@@ -80,6 +80,27 @@ test('same name and same phone suffix in multiple index rows fails closed', () =
 test('missing or malformed index phone values never authenticate', () => {
   assert.equal(authenticate([{studentName:'미확보',phone4:'',status:'ACTIVE'}],'미확보','1234'),null);
   assert.equal(authenticate([{studentName:'오류번호',phone4:'12x',status:'ACTIVE'}],'오류번호','1234'),null);
+});
+
+test('single, student, and guardian suffixes authenticate from one index cell', () => {
+  const records = [{studentName:'테스트학생',phone4:'1357,2468',status:'ACTIVE'}];
+  assert.equal(authenticate([{studentName:'단일학생',phone4:'1111',status:'ACTIVE'}],'단일학생','1111').studentName,'단일학생');
+  assert.equal(authenticate(records,'테스트학생','1357').studentName,'테스트학생');
+  assert.equal(authenticate(records,'테스트학생','2468').studentName,'테스트학생');
+  assert.equal(authenticate(records,'테스트학생','9999'),null);
+});
+
+test('mixed separators and duplicate suffixes form one allowed suffix set', () => {
+  const value = '1357;2468 | 3690\n1357';
+  assert.deepEqual(allowedPhone4s(value),['1357','2468','3690']);
+  const record = [{studentName:'구분학생',phone4:value,status:'ACTIVE'}];
+  assert.equal(authenticate(record,'구분학생','1357').studentName,'구분학생');
+});
+
+test('malformed or full-phone tokens never become allowed suffixes', () => {
+  assert.deepEqual(allowedPhone4s('1357abc'),[]);
+  assert.deepEqual(allowedPhone4s('12345678901'),[]);
+  assert.equal(authenticate([{studentName:'오류학생',phone4:'12345678901',status:'ACTIVE'}],'오류학생','8901'),null);
 });
 
 test('malformed JSON and duplicate snapshot keys make a slot unavailable', () => {

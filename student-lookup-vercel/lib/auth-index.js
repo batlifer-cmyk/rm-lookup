@@ -2,18 +2,24 @@
 
 const { normalizeName, text } = require('./snapshot');
 
-function digits(value) { return text(value).replace(/\D/g, ''); }
+function allowedPhone4s(value) {
+  const raw = text(value);
+  if (!raw) return [];
+  const tokens = raw.split(/[;,|\s]+/).filter(Boolean);
+  if (tokens.some(token => !/^\d{4}$/.test(token))) return [];
+  return [...new Set(tokens)];
+}
 
 function authenticate(records, name, phone4) {
   const normalizedName = normalizeName(name);
-  const normalizedPhone = digits(phone4);
-  if (!normalizedName || normalizedPhone.length !== 4) return null;
+  const normalizedPhone = text(phone4);
+  if (!normalizedName || !/^\d{4}$/.test(normalizedPhone)) return null;
   const matches = records.filter(record =>
     text(record.status).toUpperCase() === 'ACTIVE' &&
     normalizeName(record.studentName) === normalizedName &&
-    digits(record.phone4).slice(-4) === normalizedPhone
+    allowedPhone4s(record.phone4).includes(normalizedPhone)
   );
   return matches.length === 1 ? matches[0] : null;
 }
 
-module.exports = { authenticate };
+module.exports = { authenticate, allowedPhone4s };
