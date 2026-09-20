@@ -3,6 +3,12 @@
 function text(value) { return String(value ?? '').trim(); }
 function normalizeName(value) { return text(value).toLowerCase().replace(/[\s,，·]/g, ''); }
 function digits(value) { return text(value).replace(/\D/g, ''); }
+function numberOrNull(value) {
+  const raw = text(value);
+  if (!raw) return null;
+  const number = Number(raw);
+  return Number.isFinite(number) ? number : null;
+}
 
 function generationMs(generationId) {
   const match = text(generationId).match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})_/);
@@ -50,13 +56,13 @@ function lookupStudent(entries, name) {
   const state = text(row['회차상태']);
   const message = text(row['안내']);
   const notice = state && state !== '확정' ? (message || '수업회차 확인이 필요합니다. 운영팀에 문의해주세요.') : message || undefined;
-  const remaining = Number(row['잔여']);
-  const latestRegistration = Number(row['등록횟수']);
+  const remaining = numberOrNull(row['잔여']);
+  const latestRegistration = numberOrNull(row['등록횟수']);
   return {
     studentName: text(row['학생명']),
-    remainingLessons: Number.isFinite(remaining) ? remaining : null,
+    remainingLessons: remaining,
     lastLessonDate: text(row['마지막수업일']) || null,
-    latestRegistrationLessons: Number.isFinite(latestRegistration) ? latestRegistration : null,
+    latestRegistrationLessons: latestRegistration,
     ...(notice ? { notice } : {})
   };
 }
