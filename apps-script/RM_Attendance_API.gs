@@ -233,7 +233,7 @@ function rmCounterFromNote_(note) {
 }
 function rmCounterDone_(counter){const m=rmText_(counter).match(/^(\d+(?:\.\d+)?)(?:\(|\/)/);return m?Number(m[1]):null;}
 function rmCounterPackage_(counter){const m=rmText_(counter).match(/^\d+(?:\.\d+)?\((\d+(?:\.\d+)?)\)/);return m?Number(m[1]):null;}
-function rmHoursToUnits_(value){const text=rmText_(value).toLowerCase();if(!text||text==='n')return 0;if(text==='s1')return 0.5;const n=Number(text);return Number.isFinite(n)&&n>0?n:0;}
+function rmHoursToUnits_(value){const text=rmText_(value).toLowerCase();if(!text||text==='n'||text==='t'||text==='p')return 0;if(text==='s1')return 1.0;if(text==='s1.5')return 1.5;if(text==='s2')return 2.0;const n=Number(text);return Number.isFinite(n)&&n>0?n:0;}
 function rmValuesGetFrom_(spreadsheetId,range,valueRenderOption){const path='/'+encodeURIComponent(spreadsheetId)+'/values/'+encodeURIComponent(range)+'?majorDimension=ROWS&valueRenderOption='+encodeURIComponent(valueRenderOption||'FORMATTED_VALUE');return rmSheetsFetchJson_(path);}
 function rmValuesGet_(range,valueRenderOption){return rmValuesGetFrom_(RM_ATTENDANCE_API.DATA_SPREADSHEET_ID,range,valueRenderOption);}
 function rmSheetsFetchJson_(path){const url='https://sheets.googleapis.com/v4/spreadsheets'+path;const resp=UrlFetchApp.fetch(url,{method:'get',headers:{Authorization:'Bearer '+ScriptApp.getOAuthToken()},muteHttpExceptions:true});const code=resp.getResponseCode(),text=resp.getContentText();if(code<200||code>=300)throw new Error('SHEETS_API_'+code+':'+text.slice(0,300));return JSON.parse(text);}
