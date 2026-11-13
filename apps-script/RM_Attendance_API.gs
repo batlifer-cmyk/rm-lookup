@@ -74,7 +74,8 @@ function rmSummaryTable_() {
   const cached = cache.get(key);
   if (cached) { try { return JSON.parse(cached); } catch(e) {} }
   const range = "'" + RM_ATTENDANCE_API.SUMMARY_SHEET.replace(/'/g,"''") + "'!A2:J" + RM_ATTENDANCE_API.SUMMARY_END_ROW;
-  const values = (rmValuesGetFrom_(RM_ATTENDANCE_API.SUMMARY_SPREADSHEET_ID,range,'FORMATTED_VALUE').values || []);
+  const fetched = (rmValuesGetFrom_(RM_ATTENDANCE_API.SUMMARY_SPREADSHEET_ID,range,'FORMATTED_VALUE').values || []);
+  const values = fetched.filter(function(r){ return r && rmText_(r[0]); });
   try { const raw = JSON.stringify(values); if (raw.length < 95000) cache.put(key,raw,RM_ATTENDANCE_API.TABLE_CACHE_SECONDS); } catch(e) {}
   return values;
 }
@@ -85,7 +86,8 @@ function rmVerifyTable_() {
   const cached = cache.get(key);
   if (cached) { try { return JSON.parse(cached); } catch(e) {} }
   const range = "'" + RM_ATTENDANCE_API.VERIFY_SHEET.replace(/'/g,"''") + "'!A2:L" + RM_ATTENDANCE_API.VERIFY_END_ROW;
-  const values = (rmValuesGet_(range,'FORMATTED_VALUE').values || []);
+  const fetched = (rmValuesGet_(range,'FORMATTED_VALUE').values || []);
+  const values = fetched.filter(function(r){ return r && rmText_(r[1]); });
   try { const raw = JSON.stringify(values); if (raw.length < 95000) cache.put(key,raw,RM_ATTENDANCE_API.TABLE_CACHE_SECONDS); } catch(e) {}
   return values;
 }
