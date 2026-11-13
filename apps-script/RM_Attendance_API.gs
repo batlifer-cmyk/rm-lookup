@@ -6,7 +6,7 @@ const RM_ATTENDANCE_API = Object.freeze({
   SOURCE_SHEET: 'Master Time Data',
   TZ: 'Asia/Seoul',
   CACHE_SECONDS: 120,
-  TABLE_CACHE_SECONDS: 300,
+  TABLE_CACHE_SECONDS: 1800,
   SUMMARY_END_ROW: 2000,
   VERIFY_END_ROW: 3000,
   SOURCE_END_ROW: 23000,
@@ -88,6 +88,13 @@ function rmVerifyTable_() {
   const values = (rmValuesGet_(range,'FORMATTED_VALUE').values || []);
   try { const raw = JSON.stringify(values); if (raw.length < 95000) cache.put(key,raw,RM_ATTENDANCE_API.TABLE_CACHE_SECONDS); } catch(e) {}
   return values;
+}
+
+function rmRefillCache() {
+  // 시간 기반 트리거(10분 간격)에서 호출합니다. 느린 표 읽기를 요청 경로 밖에서 흡수합니다.
+  const summary = rmSummaryTable_();
+  const verify = rmVerifyTable_();
+  return {summaryRows:summary.length, verifyRows:verify.length, at:new Date().toISOString()};
 }
 
 function rmSummaryFromSource_(query, phone4) {
