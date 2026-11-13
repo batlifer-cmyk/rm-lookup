@@ -6,6 +6,7 @@ const RM_ATTENDANCE_API = Object.freeze({
   SOURCE_SHEET: 'Master Time Data',
   TZ: 'Asia/Seoul',
   CACHE_SECONDS: 120,
+  TABLE_CACHE_SECONDS: 1800,
   SUMMARY_END_ROW: 2000,
   VERIFY_END_ROW: 3000,
   SOURCE_END_ROW: 23000,
@@ -26,6 +27,11 @@ function doGet(e) {
     if (action === 'restcheck') {
       const meta = rmSheetsFetchJson_('/' + encodeURIComponent(RM_ATTENDANCE_API.DATA_SPREADSHEET_ID) + '?fields=properties.title');
       return rmJson_({ok:true,spreadsheet:meta.properties && meta.properties.title || '',mode:'rest',elapsedMs:Date.now()-started});
+    }
+    if (action === 'warmup') {
+      const summary = rmSummaryTable_();
+      const verify = rmVerifyTable_();
+      return rmJson_({ok:true,stage:'warmup',summaryRows:summary.length,verifyRows:verify.length,elapsedMs:Date.now()-started});
     }
     if (!name) return rmJson_({ok:false,error:'NAME_REQUIRED',elapsedMs:Date.now()-started});
 
@@ -62,9 +68,39 @@ function authorizeRestAccess() {
   return true;
 }
 
-function rmSummaryFromSource_(query, phone4) {
+function rmSummaryTable_() {
+  const cache = CacheService.getScriptCache();
+  const key = 'summary:table:v4';
+  const cached = cache.get(key);
+  if (cached) { try { return JSON.parse(cached); } catch(e) {} }
   const range = "'" + RM_ATTENDANCE_API.SUMMARY_SHEET.replace(/'/g,"''") + "'!A2:J" + RM_ATTENDANCE_API.SUMMARY_END_ROW;
-  const values = (rmValuesGetFrom_(RM_ATTENDANCE_API.SUMMARY_SPREADSHEET_ID,range,'FORMATTED_VALUE').values || []);
+  const fetched = (rmValuesGetFrom_(RM_ATTENDANCE_API.SUMMARY_SPREADSHEET_ID,range,'FORMATTED_VALUE').values || []);
+  const values = fetched.filter(function(r){ return r && rmText_(r[0]); });
+  try { const raw = JSON.stringify(values); if (raw.length < 95000) cache.put(key,raw,RM_ATTENDANCE_API.TABLE_CACHE_SECONDS); } catch(e) {}
+  return values;
+}
+
+function rmVerifyTable_() {
+  const cache = CacheService.getScriptCache();
+  const key = 'verify:table:v4';
+  const cached = cache.get(key);
+  if (cached) { try { return JSON.parse(cached); } catch(e) {} }
+  const range = "'" + RM_ATTENDANCE_API.VERIFY_SHEET.replace(/'/g,"''") + "'!A2:L" + RM_ATTENDANCE_API.VERIFY_END_ROW;
+  const fetched = (rmValuesGet_(range,'FORMATTED_VALUE').values || []);
+  const values = fetched.filter(function(r){ return r && rmText_(r[1]); });
+  try { const raw = JSON.stringify(values); if (raw.length < 95000) cache.put(key,raw,RM_ATTENDANCE_API.TABLE_CACHE_SECONDS); } catch(e) {}
+  return values;
+}
+
+function rmRefillCache() {
+  // 시간 기반 트리거(10분 간격)에서 호출합니다. 느린 표 읽기를 요청 경로 밖에서 흡수합니다.
+  const summary = rmSummaryTable_();
+  const verify = rmVerifyTable_();
+  return {summaryRows:summary.length, verifyRows:verify.length, at:new Date().toISOString()};
+}
+
+function rmSummaryFromSource_(query, phone4) {
+  const values = rmSummaryTable_();
   const q = rmNormalize_(query);
   let matches = [];
 
@@ -95,8 +131,7 @@ function rmSummaryFromSource_(query, phone4) {
   return matches.slice(0,10);
 }
 function rmFindPublicStudents_(query, phone4) {
-  const range = "'" + RM_ATTENDANCE_API.VERIFY_SHEET.replace(/'/g,"''") + "'!A2:L" + RM_ATTENDANCE_API.VERIFY_END_ROW;
-  const values = (rmValuesGet_(range,'FORMATTED_VALUE').values || []);
+  const values = rmVerifyTable_();
   const q = rmNormalize_(query);
   let matches = [];
   for (let i=0;i<values.length;i+=1) {
