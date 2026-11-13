@@ -1,0 +1,70 @@
+'use strict';
+
+function text(value) { return String(value ?? '').trim(); }
+function normalizeName(value) { return text(value).toLowerCase().replace(/[\s,，·]/g, ''); }
+function digits(value) { return text(value).replace(/\D/g, ''); }
+function numberOrNull(value) {
+  const raw = text(value);
+  if (!raw) return null;
+  const number = Number(raw);
+  return Number.isFinite(number) ? number : null;
+}
+
+function generationMs(generationId) {
+  const match = text(generationId).match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})_/);
+  if (!match) return NaN;
+  return Date.UTC(...match.slice(1).map(Number).map((value, index) => index === 1 ? value - 1 : value));
+}
+
+function parseSlot(values, start, expectedCount) {
+  const records = values.slice(1).map(row => [row[start], row[start + 1], row[start + 2]]);
+  if (records.length !== expectedCount || records.some(row => !text(row[0]) || !text(row[1]) || !text(row[2]))) return null;
+  const generationId = text(records[0][0]);
+  if (records.some(row => text(row[0]) !== generationId)) return null;
+  const entries = new Map();
+  try {
+    for (const [, key, encoded] of records) {
+      if (entries.has(text(key))) return null;
+      entries.set(text(key), JSON.parse(encoded));
+    }
+  } catch (_) { return null; }
+  const generatedAtMs = generationMs(generationId);
+  return Number.isFinite(generatedAtMs) ? { generationId, generatedAtMs, entries } : null;
+}
+
+function selectFreshSnapshot(values, { expectedCount, maxAgeSeconds, now = Date.now() }) {
+  const slots = [parseSlot(values, 0, expectedCount), parseSlot(values, 3, expectedCount)].filter(Boolean);
+  if (!slots.length) throw new Error('SNAPSHOT_UNAVAILABLE');
+  slots.sort((a, b) => b.generatedAtMs - a.generatedAtMs);
+  const snapshot = slots[0];
+  if (Number.isFinite(maxAgeSeconds) && now - snapshot.generatedAtMs > maxAgeSeconds * 1000) throw new Error('SNAPSHOT_STALE');
+  return snapshot;
+}
+
+function lookupStudent(entries, name) {
+  const normalizedName = normalizeName(name);
+  if (!normalizedName) return null;
+  const matches = [];
+  for (const entry of entries.values()) {
+    if (normalizeName(entry.studentName) !== normalizedName) continue;
+    const rows = Array.isArray(entry.cutoverRows) && entry.cutoverRows.length ? entry.cutoverRows : entry.legacyRows;
+    if (!Array.isArray(rows) || rows.length !== 1) continue;
+    matches.push(rows[0]);
+  }
+  if (matches.length !== 1) return null;
+  const row = matches[0];
+  const state = text(row['회차상태']);
+  const message = text(row['안내']);
+  const notice = state && state !== '확정' ? (message || '수업회차 확인이 필요합니다. 운영팀에 문의해주세요.') : message || undefined;
+  const remaining = numberOrNull(row['잔여']);
+  const latestRegistration = numberOrNull(row['등록횟수']);
+  return {
+    studentName: text(row['학생명']),
+    remainingLessons: remaining,
+    lastLessonDate: text(row['마지막수업일']) || null,
+    latestRegistrationLessons: latestRegistration,
+    ...(notice ? { notice } : {})
+  };
+}
+
+module.exports = { text, normalizeName, selectFreshSnapshot, lookupStudent };

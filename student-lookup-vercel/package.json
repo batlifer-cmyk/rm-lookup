@@ -1,0 +1,12 @@
+{
+  "name": "rm-student-lookup",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
+

@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>라이언멤버스 | 수업회차 조회</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+  <style>
+    :root{--bg:#ecebe6;--surface:#fbfaf8;--ink:#545454;--strong:#2e2e2e;--deep:#7e9598;--warn:#9a6a30;--line:#dbd9d2}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:var(--bg);font-family:'Noto Sans KR',sans-serif;color:var(--strong);display:flex;flex-direction:column;align-items:center;padding:32px 16px 60px}.brand{display:flex;flex-direction:column;align-items:center;margin-bottom:28px}.mark{font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:.4em;color:var(--deep);margin-bottom:4px}.title{font-size:20px;font-weight:900}.box,.result,.status{width:100%;max-width:420px}.box,.result{background:var(--surface);border:1.5px solid var(--line);border-radius:18px}.box{padding:18px}.field{display:block;font-size:13px;font-weight:700;color:var(--ink);margin:0 0 7px}.field+input{margin-bottom:15px}input{width:100%;border:1.5px solid var(--line);border-radius:10px;padding:13px 14px;background:#fff;font:inherit;font-size:16px;color:var(--strong);outline:0}input:focus{border-color:var(--deep)}button{width:100%;border:0;background:var(--strong);color:#fff;padding:13px;border-radius:10px;font:700 15px 'Noto Sans KR',sans-serif;cursor:pointer}button:disabled{opacity:.6}.status{min-height:21px;text-align:center;font-size:13px;color:var(--ink);margin-top:10px}.result{margin-top:18px;padding:22px}.empty{text-align:center;color:var(--ink);font-size:13.5px;line-height:1.7}.name{font-size:19px;font-weight:900;margin-bottom:20px}.remaining{display:flex;align-items:flex-end;gap:9px;margin-bottom:20px}.number{font-family:'Bebas Neue',sans-serif;font-size:68px;line-height:.82}.label{font-size:13px;font-weight:700;color:var(--ink);padding-bottom:6px}.row{display:flex;justify-content:space-between;gap:12px;border-top:1px solid var(--line);padding-top:12px;margin-top:10px;font-size:13px;color:var(--ink)}.row b{color:var(--strong)}.notice{margin-top:16px;padding:12px;border-radius:10px;background:#f1e7d9;color:#71502a;font-size:12.5px;line-height:1.6}footer{margin-top:auto;padding-top:44px;font-size:11px;color:#a6a39a;text-align:center}
+  </style>
+</head>
+<body>
+  <div class="brand"><div class="mark">RYAN MEMBERS</div><div class="title">수업회차 조회</div></div>
+  <main class="box">
+    <label class="field" for="name">학생 이름</label><input id="name" autocomplete="name" placeholder="학생 이름을 입력하세요">
+    <label class="field" for="phone4">휴대폰 번호 뒤 4자리</label><input id="phone4" type="tel" inputmode="numeric" autocomplete="off" maxlength="4" placeholder="예: 1234">
+    <button id="submit" type="button">조회</button>
+  </main>
+  <div class="status" id="status" aria-live="polite"></div>
+  <section id="result" class="result"><div class="empty">이름과 휴대폰 번호 뒤 4자리를 입력하면<br>잔여 수업회차를 확인할 수 있어요.</div></section>
+  <footer>ⓒ Ryan Members · 데이터는 정기적으로 갱신됩니다</footer>
+  <script>
+    const nameInput=document.querySelector('#name'),phoneInput=document.querySelector('#phone4'),button=document.querySelector('#submit'),status=document.querySelector('#status'),result=document.querySelector('#result');
+    const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[char]));
+    phoneInput.addEventListener('input',()=>phoneInput.value=phoneInput.value.replace(/\D/g,'').slice(0,4));
+    function message(text){result.innerHTML=`<div class="empty">${text}</div>`}
+    function render(data){const remain=data.remainingLessons===null?'-':esc(data.remainingLessons);result.innerHTML=`<div class="name">${esc(data.studentName)}</div><div class="remaining"><div class="number">${remain}</div><div class="label">회 남음</div></div><div class="row"><span>최근 수업일</span><b>${esc(data.lastLessonDate||'-')}</b></div><div class="row"><span>최근 등록회차</span><b>${data.latestRegistrationLessons===null?'-':esc(data.latestRegistrationLessons)+'회'}</b></div>${data.notice?`<div class="notice">${esc(data.notice)}</div>`:''}`}
+    async function lookup(){const name=nameInput.value.trim(),phone4=phoneInput.value.trim();if(!name||phone4.length!==4){status.textContent='학생 이름과 휴대폰 번호 뒤 4자리를 모두 입력해주세요.';return}button.disabled=true;status.textContent='조회 중...';try{const response=await fetch('/api/lookup',{method:'POST',headers:{'content-type':'application/json'},cache:'no-store',body:JSON.stringify({name,phone4})});const body=await response.json();if(!response.ok||!body.ok){if(body.error==='NOT_FOUND_OR_IDENTITY_MISMATCH')throw new Error('not-found');if(body.error==='TOO_MANY_ATTEMPTS')throw new Error('rate');throw new Error('unavailable')}render(body.result);status.textContent=''}catch(error){message(error.message==='not-found'?'입력하신 정보와 일치하는 수강 정보를 찾지 못했어요.':'조회할 수 없습니다. 잠시 후 다시 시도해주세요.');status.textContent=error.message==='rate'?'잠시 후 다시 시도해주세요.':' '}finally{button.disabled=false}}
+    button.addEventListener('click',lookup);[nameInput,phoneInput].forEach(input=>input.addEventListener('keydown',event=>{if(event.key==='Enter')lookup()}));
+  </script>
+</body>
+</html>
+
