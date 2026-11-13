@@ -53,6 +53,28 @@ GET <WEB_APP_EXEC_URL>?action=attendance&name=김상도&phone4=1234
 - 첫 호출은 V2 소스 읽기로 인해 수 초가 걸릴 수 있습니다.
 - 동일 학생은 Script Cache 120초를 사용합니다.
 - 상세보기는 기본 회차 조회와 분리되어 있어 첫 화면 속도에는 영향을 주지 않습니다.
+- `공개조회가능 정보모음_V2` 표와 `Student_Page_View` 표는 300초 동안 Script Cache에 보관해, 시트 읽기가 느려지는 시간대에도 요청마다 원본 시트를 다시 읽지 않습니다(표 크기가 95KB를 넘으면 캐시를 건너뜁니다).
+- `?action=warmup`은 위 두 표를 미리 읽어 캐시에 올립니다. 학생 페이지가 열릴 때 자동으로 호출합니다.
+
+## 2026-11-14 지연 대응 배포 절차
+회차 조회가 8초를 넘겨 끊기는 문제로 API와 프론트를 함께 손봤습니다.
+
+1. Apps Script 편집기에서 `RM_Attendance_API.gs` 내용을 이 저장소 파일 전체로 교체합니다.
+2. 배포 → 배포 관리 → 기존 배포 오른쪽 연필(편집) → 버전 `새 버전` → 배포합니다. (URL은 그대로 유지됩니다.)
+3. 아래로 동작을 확인합니다.
+
+```text
+GET <EXEC_URL>?action=warmup
+→ {"ok":true,"stage":"warmup","summaryRows":...,"verifyRows":...,"elapsedMs":...}
+
+GET <EXEC_URL>?action=summary&name=강수정
+→ 기존과 같은 rows 응답, elapsedMs가 수백 ms대
+```
+
+4. 같은 배포를 두 번 연속 호출해 두 번째 `elapsedMs`가 줄어드는지 확인합니다(캐시 적중).
+
+배포를 미루더라도 `index.html` 수정본만 올리면 학생 화면의 8초 중단 오류는 사라집니다(12초 1차 → 20초 재시도).
+
 
 ## 프론트 연결
 배포 URL을 받은 뒤 `index.html`의 출결 API 상수에 `/exec` URL을 넣고, 기존 `공개출결_V2` CSV 호출을 제거합니다.
