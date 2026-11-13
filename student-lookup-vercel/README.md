@@ -4,12 +4,15 @@ Vercel serves both the static student page and `POST /api/lookup`. The browser s
 
 It does not call the legacy Apps Script Web App or calculate lessons. It does not expose Google Sheets, snapshot rows, phone numbers, or the service-account credential to the browser.
 
+## Status (2026-11-14)
+
+Do not deploy yet: the `_API_Cutover_Snapshot` generation is from 2026-09-18, so `RM_SNAPSHOT_MAX_AGE_SECONDS=7200` rejects it and every lookup returns 503. No snapshot generator exists in this repository. Read `docs/vercel-readiness.md` for the blocker, the open product decisions (ACTIVE-only students, mandatory phone suffix, missing attendance detail), and the full deployment checklist.
+
 ## Preview configuration
 
 1. Create a dedicated Google service account with only `spreadsheets.readonly` scope. Share only the spreadsheet containing `_API_Cutover_Snapshot` with its email as Viewer; do not make the sheet public.
 2. In the Vercel **Preview** environment add the variables in `.env.example`. Store the complete `GOOGLE_SERVICE_ACCOUNT_JSON` only as an encrypted Vercel Preview environment variable; never create a local credential file.
 3. Deploy a Preview, then run `npm test` and perform the five smoke tests below against Preview.
-
 ## Required Preview smoke tests
 
 - Correct name + suffix: only one response, containing the five permitted fields.

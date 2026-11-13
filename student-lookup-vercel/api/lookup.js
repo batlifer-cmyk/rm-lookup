@@ -1,6 +1,6 @@
 'use strict';
 
-const { readSnapshot, readAuthIndex } = require('../lib/google-sheets');
+const { accessToken, readSnapshot, readAuthIndex } = require('../lib/google-sheets');
 const { authenticate } = require('../lib/auth-index');
 const { selectFreshSnapshot, lookupStudent, text } = require('../lib/snapshot');
 
@@ -29,7 +29,8 @@ module.exports = async function handler(req, res) {
   const phone4 = text(req.body && req.body.phone4).replace(/\D/g, '');
   if (!name || phone4.length !== 4) return send(res, 400, { ok: false, error: 'INVALID_INPUT' });
   try {
-    const [values, authIndex] = await Promise.all([readSnapshot(process.env), readAuthIndex(process.env)]);
+    const token = await accessToken(process.env);
+    const [values, authIndex] = await Promise.all([readSnapshot(process.env, token), readAuthIndex(process.env, token)]);
     const snapshot = selectFreshSnapshot(values, {
       expectedCount: Number(process.env.RM_SNAPSHOT_EXPECTED_COUNT || 110),
       maxAgeSeconds: Number(process.env.RM_SNAPSHOT_MAX_AGE_SECONDS || 7200)
